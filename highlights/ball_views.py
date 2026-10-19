@@ -74,6 +74,11 @@ def save_ball_label(request, pk):
     except ValueError as exc:
         messages.error(request, str(exc))
         return redirect("ball_labels", pk=pk)
+    allowed_reasons = {"", "jersey", "court", "hoop", "advertisement", "crowd", "occlusion", "other"}
+    negative_reason = request.POST.get("hard_negative_reason", "").strip() if absent else ""
+    if negative_reason not in allowed_reasons:
+        messages.error(request, "不支持的干扰类别")
+        return redirect("ball_labels", pk=pk)
     with transaction.atomic():
         # Disallow unbounded annotation inflation.
         if not BallFrameAnnotation.objects.filter(game=game,time_seconds=moment).exists() and game.ball_frames.count() >= 3000:
@@ -81,7 +86,8 @@ def save_ball_label(request, pk):
             return redirect("ball_labels", pk=pk)
         BallFrameAnnotation.objects.update_or_create(
             game=game,time_seconds=moment,
-            defaults={"ball_absent":absent,"x":x,"y":y,"w":w,"h":h})
+            defaults={"ball_absent":absent,"hard_negative_reason":negative_reason,
+                      "x":x,"y":y,"w":w,"h":h})
         BallFrameSuggestion.objects.filter(game=game,time_seconds__gte=moment-.02,
                                            time_seconds__lte=moment+.02).delete()
         Game.objects.filter(pk=pk).update(ball_training_approved=False)

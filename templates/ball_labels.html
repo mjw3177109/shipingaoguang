@@ -26,6 +26,17 @@
 <label>宽度 w<input type="number" id="ball-w" name="w" step="0.00001" readonly></label>
 <label>高度 h<input type="number" id="ball-h" name="h" step="0.00001" readonly></label></div>
 <label><input type="checkbox" id="ball-absent" name="ball_absent" value="yes" style="width:auto"> 本帧确认无球（负样本）</label>
+<label>无球原因 / 难负样本类别（勾选无球时填写）
+<select name="hard_negative_reason" id="negative-reason">
+<option value="">普通背景 / 未分类</option>
+<option value="jersey">橙色球衣 / 人体误检</option>
+<option value="court">地板 / 木纹误检</option>
+<option value="hoop">篮筐 / 篮网 / 篮板</option>
+<option value="advertisement">广告 / 灯牌 / 场边物品</option>
+<option value="crowd">看台 / 人群</option>
+<option value="occlusion">遮挡 / 画面中无法找到球</option>
+<option value="other">其他干扰</option></select></label>
+<p class="hint">原因只用于人工确认的无球负样本；不能把模型没检出篮球的帧直接当无球。</p>
 <button class="primary" type="submit">保存此帧标注</button>
 </form>
 <hr><h2>训练数据授权确认</h2>

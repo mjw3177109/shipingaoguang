@@ -47,7 +47,13 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
     for game in games:
         split=split_by_game[game.pk]
         labels=list(game.ball_frames.all()[:max_frames])
-        games_info.append({"id":game.pk,"split":split,"sample_count":len(labels),
+        negative_kinds={}
+        for item in labels:
+            if item.ball_absent:
+                reason=item.hard_negative_reason or "unspecified"
+                negative_kinds[reason]=negative_kinds.get(reason,0)+1
+        games_info.append({"negative_by_reason":negative_kinds,
+                           "id":game.pk,"split":split,"sample_count":len(labels),
                            "positive":sum(not x.ball_absent for x in labels),
                            "negative":sum(x.ball_absent for x in labels),
                            "training_rights":game.ball_training_rights})
@@ -73,6 +79,7 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
             samples.append({"game_id":game.pk,"split":split,
                             "time_seconds":moment,"image":image,"label":label,
                             "ball_absent":bool(item.ball_absent),
+                            "hard_negative_reason":item.hard_negative_reason if item.ball_absent else "",
                             "bbox_xywh_norm":list(rect),
                             "sha256_image":hashlib.sha256(raw).hexdigest()})
     if not any(x["split"]=="train" and not x["ball_absent"] for x in samples):
@@ -86,6 +93,14 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
               "test_sealed":bool(three_way),
               "warning":"Annotations must be human verified; no claimed accuracy or automatic score.",
               "games":games_info,"samples":samples}
+    hard_negative_totals={}
+    for row in samples:
+        if row["ball_absent"]:
+            reason=row["hard_negative_reason"] or "unspecified"
+            hard_negative_totals[reason]=hard_negative_totals.get(reason,0)+1
+    audit["hard_negative_by_reason"]=hard_negative_totals
+    audit["distinct_specified_hard_negative_categories"]=len(
+        [x for x in hard_negative_totals if x!="unspecified"])
     (root/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
     (root/"quality_report.json").write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding="utf-8")
     (root/"data.yaml").write_text(

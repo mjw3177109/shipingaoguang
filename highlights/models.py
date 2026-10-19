@@ -102,6 +102,7 @@ class BallFrameAnnotation(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="ball_frames")
     time_seconds = models.FloatField()
     ball_absent = models.BooleanField(default=False)
+    hard_negative_reason = models.CharField(max_length=24, blank=True, default="")
     x = models.FloatField(default=0)
     y = models.FloatField(default=0)
     w = models.FloatField(default=0)
