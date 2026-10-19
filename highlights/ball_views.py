@@ -6,6 +6,7 @@ import subprocess
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from django.http import HttpResponse
 from django.core.paginator import Paginator
@@ -48,8 +49,10 @@ def ball_labels(request, pk):
     total = game.ball_frames.count()
     reviewed = game.ball_frames.filter(quality_verified=True).count()
     suggestions = game.ball_suggestions.order_by("time_seconds")[:50]
+    gallery_suggestions = game.ball_suggestions.order_by("-score","time_seconds")[:6]
     return render(request, "ball_labels.html", {"game":game, "labels":rows,
                                                 "suggestions":suggestions,
+                                                "gallery_suggestions":gallery_suggestions,
                                                 "page_obj":page,
                                                 "verified_count":reviewed,
                                                 "annotation_count":total,
@@ -147,7 +150,8 @@ def queue_ball_sampling(request, pk):
     # Do not block Django HTTP workers on ffmpeg/OpenCV. Existing CPU worker runs it.
     changed = Game.objects.filter(pk=game.pk,ball_sampling_state__in=(
         "idle","ready","failed")).update(
-            ball_sampling_state="queued",ball_sampling_error="")
+            ball_sampling_state="queued",ball_sampling_error="",
+            ball_sampling_round=F("ball_sampling_round")+1)
     if changed:
         messages.success(request,"CPU 智能抽帧已排队；标注建议不等于真实篮球标签。")
     else:

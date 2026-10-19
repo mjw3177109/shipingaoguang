@@ -171,3 +171,13 @@ python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --o
 - 在 GitHub Actions 用许可明确的真实视频已选四帧历史球框进行数据就绪性审查，因无负例、无二次复核、样本不足，明确报告未达标，不声称高光识别提升。
 
 完整操作和数据使用边界： [docs/V07_VERIFIED_LABEL_PIPELINE.md](docs/V07_VERIFIED_LABEL_PIPELINE.md)。
+
+## V0.8 · 多场比赛数据采集看板 + CPU 分轮智能抽帧
+
+- 球馆首页新增 **V0.8 训练数据采集看板**，横向比较本账号所有比赛的人工篮球框、真实无球负样本、复核完成量、授权状态、待审时间点。JSON 私有报告：`/ball-campaign/report.json`。
+- V0.4 单轮固定24时间点的限制已改善：每次重新排队会使用不同采样时间网格，在普通 CPU 中从视频取样，不清空上轮未处理的建议；过滤已有标签和近重复点，最多保留300条未处理建议。
+- 标注工作台可展示最多6张安全登录鉴权的真实帧预览（仅辅助查阅，**不是 AI 识别证据**）。
+- 持续使用 V0.7 二次人工复核和授权后，再采用 `--three-way --verified-only` 严格导出。
+- 代码已在许可明确的真实篮球片段上进行 CPU 两轮抽帧验证，验证的是**新时间点**，不代表实际识别到了篮球/进球。
+
+具体部署与质量边界请看 [docs/V08_LABEL_CAMPAIGN.md](docs/V08_LABEL_CAMPAIGN.md)。

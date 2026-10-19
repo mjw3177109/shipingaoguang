@@ -59,10 +59,12 @@ def choose_suggestions(entries, duration, limit=24):
     return sorted(selected,key=lambda x:x["time_seconds"])
 
 
-def scan_annotation_frames(video_path, *, limit=24, max_samples=96):
+def scan_annotation_frames(video_path, *, limit=24, max_samples=96, sampling_round=0):
     import cv2
     import numpy as np
     from .cpu import _colored_ball_candidates
+    if type(sampling_round) is not int or not 0 <= sampling_round <= 100000:
+        raise ValueError("Invalid sampling round")
     if not (1 <= limit <= 100 and 8 <= max_samples <= 180):
         raise ValueError("Invalid bounded CPU sampler parameters")
     cap=cv2.VideoCapture(str(video_path))
@@ -81,8 +83,19 @@ def scan_annotation_frames(video_path, *, limit=24, max_samples=96):
         observations=[]
         previous=None
         decoded=0
+        # Each round shifts the sampling grid by a deterministic low-
+        # discrepancy fraction. Repeated runs explore *different frames*.
+        fraction=.35
+        if sampling_round:
+            n=sampling_round
+            fraction=0.
+            divisor=2.
+            while n:
+                n, remainder=divmod(n,2)
+                fraction+=remainder/divisor
+                divisor*=2.
         for index in range(num):
-            t=(index+.35)*duration/num
+            t=(index+fraction)*duration/num
             if t>=duration:
                 continue
             cap.set(cv2.CAP_PROP_POS_MSEC, 1000*t)
@@ -115,6 +128,7 @@ def scan_annotation_frames(video_path, *, limit=24, max_samples=96):
             "schema_version":1, "video_duration_seconds":round(duration,3),
             "analysis":{"algorithm":"bounded_cpu_ambiguous_orange_motion_diversity",
                         "device":"cpu","decoded_frames":decoded,
+                        "sampling_round":sampling_round,
                         "elapsed_seconds":round(time.monotonic()-started,3),
                         "warning":"Only suggested REVIEW TIMES; no frame is automatically labeled ball or no-ball."},
             "suggestions":suggestions,
@@ -129,8 +143,10 @@ def main(argv=None):
     p.add_argument("--out",required=True)
     p.add_argument("--limit",type=int,default=24)
     p.add_argument("--max-samples",type=int,default=96)
+    p.add_argument("--round",type=int,default=0,dest="sampling_round")
     args=p.parse_args(argv)
-    data=scan_annotation_frames(args.video,limit=args.limit,max_samples=args.max_samples)
+    data=scan_annotation_frames(args.video,limit=args.limit,max_samples=args.max_samples,
+                                sampling_round=args.sampling_round)
     out=Path(args.out);out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
     print(f"Decoded {data['analysis']['decoded_frames']} CPU frames; "

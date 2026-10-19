@@ -40,6 +40,7 @@ class Game(models.Model):
     ball_training_rights = models.CharField(max_length=240, blank=True)
     ball_sampling_state = models.CharField(max_length=16, default="idle", choices=[("idle","未采样"),("queued","等待CPU采样"),("running","CPU采样中"),("ready","待人工标注"),("failed","采样失败")])
     ball_sampling_error = models.CharField(max_length=600, blank=True)
+    ball_sampling_round = models.PositiveIntegerField(default=0)
     analysis_engine = models.CharField(max_length=16, default="audio", choices=[("audio", "声音峰值"), ("cpu", "CPU 球状物体候选")])
     state = models.CharField(max_length=16, choices=State.choices, default=State.UPLOADED)
     error = models.TextField(blank=True)

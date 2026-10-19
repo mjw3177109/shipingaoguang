@@ -3,6 +3,8 @@ from . import views
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
+    path("ball-campaign/", views.ball_campaign, name="ball_campaign"),
+    path("ball-campaign/report.json", views.ball_campaign_json, name="ball_campaign_json"),
     path("venues/new/", views.create_venue, name="create_venue"),
     path("games/upload/", views.upload_game, name="upload_game"),
     path("games/<int:pk>/", views.game_detail, name="game"),

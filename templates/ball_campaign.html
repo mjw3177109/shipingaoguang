@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% block title %}篮球数据采集计划 · BasketCut{% endblock %}
+{% block body %}
+<div class="heading"><div><div class="eyebrow">BasketCut V0.8 · 人工训练数据计划</div>
+<h1>多场篮球比赛标注进度</h1>
+<p class="muted">所有数字来自当前登录账号的真实人工标注；CPU 推荐时间点不计入正负样本。</p></div>
+<a href="{% url 'dashboard' %}" class="inline-link">← 返回球馆首页</a></div>
+<div class="columns wide">
+<section class="panel">
+<h2>采集目标 · 首轮独立盲测准备</h2>
+<div class="v08-meters">
+{% for key,entry in report.progress.items %}
+<div class="v08-meter">
+<div class="v08-meter-head"><strong>{% if key == 'games' %}已授权且二次复核的比赛{% elif key == 'positive' %}人工篮球正例{% else %}人工无球负例{% endif %}</strong>
+<span>{{ entry.current }} / {{ entry.target }}</span></div>
+<div class="v08-track"><div class="v08-fill" style="width:{{ entry.percent }}%"></div></div>
+<small>还差 {{ entry.remaining }} {% if key == 'games' %}场{% else %}帧{% endif %}</small>
+</div>
+{% endfor %}
+</div>
+<p class="hint">目前有 {{ report.total_games }} 场视频，其中 {{ report.labeled_games }} 场已有人工标签；{{ report.consented_labeled_games }} 场已确认训练授权。达到数量目标不等于模型质量通过。</p>
+</section>
+<section class="panel">
+<h2>人工处理工作量</h2>
+<div class="v08-numbers">
+<div><strong>{{ report.unverified_frames }}</strong><small>待二次复核帧</small></div>
+<div><strong>{{ report.pending_cpu_review_times }}</strong><small>CPU 待人工查看时间点</small></div>
+<div><strong>{{ report.secondary_verified_frames }}</strong><small>已二次复核帧</small></div></div>
+{% if report.blockers %}
+<h3>仍需解决</h3><ul>{% for reason in report.blockers %}<li>{{ reason }}</li>{% endfor %}</ul>
+{% else %}<p>初期数量覆盖条件已满足，但还需要严格三集合拆分、独立真实模型评测和人工上线审核。</p>{% endif %}
+<p><a class="inline-link" href="{% url 'ball_campaign_json' %}">查看本账号机器可读 JSON 采集报告 →</a></p>
+</section></div>
+<section class="panel">
+<h2>按比赛推进 · 优先处理待标注、待复核</h2>
+<div class="table-scroll"><table>
+<thead><tr><th>比赛 / 球馆</th><th>篮球框</th><th>无球负例</th><th>待二次复核</th><th>待标注帧</th><th>素材训练授权</th><th>CPU 轮次</th><th>操作</th></tr></thead>
+<tbody>{% for game in report.games %}
+<tr><td><strong>{{ game.title }}</strong><div class="muted small">{{ game.venue_name }}</div></td>
+<td>{{ game.positive }}</td><td>{{ game.negative }}</td><td>{{ game.unverified }}</td>
+<td>{{ game.pending }}</td>
+<td>{% if game.approved %}已确认{% else %}待确认{% endif %}</td>
+<td>{{ game.sampling_rounds }}</td>
+<td><a class="inline-link" href="{% url 'ball_labels' game.id %}">继续标注 →</a></td></tr>
+{% empty %}<tr><td colspan="8">暂无比赛。先从球馆首页上传已获授权的比赛录像。</td></tr>{% endfor %}
+</tbody></table></div>
+</section>
+<section class="panel">
+<h2>关于数据质量与权限</h2>
+<p class="hint">这里展示的是人工操作记录，不是 AI 识别成绩。不要将球衣、木地板或篮圈误识别为篮球，也不要将模型未识别到篮球的帧直接设为负样本。需要先获得录像拍摄及模型训练用途的适当授权。</p>
+<p class="hint">比赛数量和标签数量达标后，管理员再运行 V0.7 的 `--three-way --verified-only` 导出，按完整比赛划分 train/val/test。评测只使用独立测试集，且研究模型不会被自动上架。</p>
+</section>
+<style>
+.v08-meters{display:grid;gap:18px;margin:16px 0}.v08-meter-head{display:flex;justify-content:space-between;gap:12px}.v08-track{height:9px;background:rgba(128,128,128,.18);border-radius:10px;overflow:hidden;margin:8px 0}
+.v08-fill{height:100%;background:#e4a83a;border-radius:10px;transition:width .2s}.v08-meter small,.v08-numbers small{color:var(--muted,#9299a7)}.v08-numbers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}
+.v08-numbers div{border:1px solid rgba(128,128,128,.16);padding:12px;border-radius:12px;display:flex;flex-direction:column;gap:5px}.v08-numbers strong{font-size:26px}
+</style>
+{% endblock %}
