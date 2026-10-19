@@ -42,12 +42,12 @@ jobs:
           done
       - name: CPU compare on two authentic basketball clips
         run: |
-          python scripts/shot_clip_diagnostics.py \
+          python -m scripts.shot_clip_diagnostics \
             --video /tmp/basketcut-compare/passing.webm \
             --out /tmp/basketcut-compare/pass-result \
             --source-url "https://commons.wikimedia.org/wiki/File:Basketpass.webm" \
             --license "CC0 1.0 (Benoît Prieur)" --description-label passing
-          python scripts/shot_clip_diagnostics.py \
+          python -m scripts.shot_clip_diagnostics \
             --video /tmp/basketcut-compare/free_throw.webm \
             --out /tmp/basketcut-compare/throw-result \
             --source-url "https://commons.wikimedia.org/wiki/File:VCB_FCB(4).webm" \
