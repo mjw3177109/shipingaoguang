@@ -77,6 +77,28 @@ class BallLabelWebTests(TestCase):
         self.assertEqual(self._save(self.game,time="notanumber").status_code,302)
         self.assertEqual(BallFrameAnnotation.objects.filter(game=self.game).count(),1)
 
+    def test_negative_reason_requires_human_absence_and_is_not_a_model_label(self):
+        self.client.force_login(self.owner)
+        save=reverse("save_ball_label",args=[self.game.pk])
+        response=self.client.get(reverse("ball_labels",args=[self.game.pk]))
+        self.assertContains(response,"hard_negative_reason")
+        self.assertEqual(self.client.post(save,{
+            "time_seconds":"1.3","ball_absent":"yes",
+            "hard_negative_reason":"jersey"}).status_code,302)
+        item=self.game.ball_frames.get(time_seconds=1.3)
+        self.assertTrue(item.ball_absent)
+        self.assertEqual(item.hard_negative_reason,"jersey")
+        self.client.post(save,{
+            "time_seconds":"1.3","x":".2","y":".25",
+            "w":".04","h":".05","hard_negative_reason":"jersey"})
+        item.refresh_from_db()
+        self.assertFalse(item.ball_absent)
+        self.assertEqual(item.hard_negative_reason,"")
+        self.client.post(save,{
+            "time_seconds":"1.8","ball_absent":"yes",
+            "hard_negative_reason":"unsafe-invented-value"})
+        self.assertFalse(self.game.ball_frames.filter(time_seconds=1.8).exists())
+
     def test_training_approval_resets_when_label_changes(self):
         self.client.force_login(self.owner)
         self._save(self.game)

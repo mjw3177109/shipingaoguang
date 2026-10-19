@@ -141,3 +141,14 @@ python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --o
 - `python manage.py audit_ball_labels --owner-id 1` 快速检查训练授权和已标注的正例/明确无球负例数量。
 - `export_ball_dataset` 在原 YOLO 数据文件旁增加 `quality_report.json`，按整场比赛拆分后验证训练/验证均含正负样本及数量门槛。门槛通过**只意味着覆盖数量达到基本要求**，绝不等于模型精度通过。
 - <https://github.com/mjw3177109/shipingaoguang/blob/main/docs/V04_CPU_ANNOTATION_LOOP.md> 中有完整操作、真实视频实验和约束。
+
+## V0.5：模型对比与封存测试集（研究阶段）
+
+本版在 V0.4 人工标注系统上新增 **按比赛隔离的 train/val/test** 导出、基础样本审查、**同一批测试帧**上的旧版 COCO 与篮球专项模型 CPU 对照、误检预算和**禁止自动上线**的研究门禁。默认声音/CPU 剪辑、审核和视频渲染链路不变。
+
+- 用 `python manage.py export_ball_dataset --owner-id 1 --out /tmp/v05 --three-way` 导出，至少 6 场完成授权且具备标签的比赛。
+- `python -m highlights.vision.predict_boxes_v05` 运行 CPU 预训练基线或研究专项权重；`python -m highlights.vision.compare_v05` 在完全一致的封存测试帧对比指标。
+- 未标注的录像不能自动贴“无球”；跨比赛重复图片 SHA、漏测图片和不合格数据覆盖阻止下一阶段审核。
+- 不管指标多高都只可以**提交人工审核**，输出 `production_release=false`，没有任何自动发布模型路径。
+
+[完整使用教程和当前数据不足说明](docs/V05_MODEL_BENCHMARK.md)。CI 合成样本仅用于数学、路径和防作弊规则测试，**不代表新增真实篮球识别准确率**。

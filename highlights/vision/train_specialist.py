@@ -4,6 +4,7 @@ CPU is supported (slow); GPU is optional. Outputs are never called 'shot detecti
 The val split is already disjoint by game_id in manifest.json.
 """
 import argparse
+import hashlib
 import json
 import random
 import time
@@ -36,9 +37,17 @@ def train(dataset, output, *, epochs=1, max_steps=50, device="cpu", pretrained=T
         raise ValueError("Invalid one-class basketball dataset manifest")
     rows=manifest.get("samples",[])
     train_rows=[x for x in rows if x["split"]=="train"]
+    test_rows=[x for x in rows if x["split"]=="test"]
+    if manifest.get("test_sealed",False):
+        if manifest.get("method")!="three_way_sealed_test_v05" or not test_rows:
+            raise ValueError("Invalid sealed test dataset")
+        assigned={str(g["id"]):g["split"] for g in manifest.get("games",[])}
+        if any(assigned.get(str(r["game_id"]))!=r["split"] for r in rows):
+            raise ValueError("Data leakage: sample split differs from its game split")
     val_rows=[x for x in rows if x["split"]=="val"]
     train_ids={x["game_id"] for x in train_rows};val_ids={x["game_id"] for x in val_rows}
-    if not train_rows or not val_rows or train_ids & val_ids:
+    test_ids={x["game_id"] for x in test_rows}
+    if not train_rows or not val_rows or train_ids & val_ids or train_ids & test_ids or val_ids & test_ids:
         raise ValueError("Train/validation must contain disjoint labeled games")
     if not 1<=epochs<=25 or not 1<=max_steps<=1000:
         raise ValueError("Training budget out of bounds")
@@ -91,7 +100,9 @@ def train(dataset, output, *, epochs=1, max_steps=50, device="cpu", pretrained=T
                 "architecture":"mobile320_binary_v1",
                 "research_only": True,  # Needs manual model promotion, never auto production
                 "training_game_ids":sorted(train_ids),
-                "validation_game_ids":sorted(val_ids)},
+                "validation_game_ids":sorted(val_ids),
+                "sealed_test_game_ids":sorted(test_ids),
+                "dataset_manifest_sha256":hashlib.sha256((root/"manifest.json").read_bytes()).hexdigest()},
                destination)
     totals={"tp":0,"fp":0,"fn":0}
     model.eval()
@@ -111,6 +122,7 @@ def train(dataset, output, *, epochs=1, max_steps=50, device="cpu", pretrained=T
         "model_release_gate":"NOT RELEASED: requires independently audited multi-game annotations and human signoff",
         "data_source":"explicitly approved human video-frame annotations",
         "train_games":len(train_ids),"val_games":len(val_ids),
+        "sealed_test_games_unread":len(test_ids),
         "train_images":len(train_rows),"val_images":len(val_rows),
         "epochs":epochs,"steps":len(losses),"device":device,
         "pretrained_coco_weights":bool(pretrained),

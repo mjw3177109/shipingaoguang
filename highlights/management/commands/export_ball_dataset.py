@@ -16,9 +16,10 @@ from highlights.ball_labels import validate_ball_label
 from highlights.ball_views import extract_frame_jpeg
 from highlights.models import Game
 from highlights.vision.data_quality import audit_games
+from highlights.vision.split_v05 import three_way_games, audit_three_way
 
 
-def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=200):
+def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=200, *, three_way=False, test_ratio=.20):
     if not 0 < val_ratio <= .5 or max_frames < 1 or max_frames > 3000:
         raise ValueError("Invalid split or frame limit")
     get_user_model().objects.get(pk=owner_id)
@@ -26,6 +27,8 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
     if game_ids:
         qs=qs.filter(pk__in=game_ids)
     games=[g for g in qs if g.ball_frames.exists() and len(g.ball_training_rights.strip())>=12]
+    if three_way and len(games)<6:
+        raise ValueError("Require at least six approved games for independent train/val/test")
     if len(games)<2:
         raise ValueError("Require at least TWO approved labeled games for game-level train/val split")
     if game_ids and set(map(int,game_ids)) != {g.pk for g in games}:
@@ -35,14 +38,24 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
         raise ValueError("Output directory must be empty to prevent stale samples or data leakage")
     root.mkdir(parents=True, exist_ok=True)
     games=sorted(games,key=lambda g: hashlib.sha256(f"basketcut-game-{g.pk}".encode()).hexdigest())
-    val_count=max(2 if len(games)>=4 else 1, min(len(games)-1, math.ceil(len(games)*val_ratio)))
-    val_ids={g.pk for g in games[:val_count]}
+    if three_way:
+        split_by_game=three_way_games([g.pk for g in games], val_ratio, test_ratio)
+    else:
+        val_count=max(2 if len(games)>=4 else 1, min(len(games)-1, math.ceil(len(games)*val_ratio)))
+        val_ids={g.pk for g in games[:val_count]}
+        split_by_game={g.pk:("val" if g.pk in val_ids else "train") for g in games}
     samples=[]
     games_info=[]
     for game in games:
-        split="val" if game.pk in val_ids else "train"
+        split=split_by_game[game.pk]
         labels=list(game.ball_frames.all()[:max_frames])
-        games_info.append({"id":game.pk,"split":split,"sample_count":len(labels),
+        negative_kinds={}
+        for item in labels:
+            if item.ball_absent:
+                reason=item.hard_negative_reason or "unspecified"
+                negative_kinds[reason]=negative_kinds.get(reason,0)+1
+        games_info.append({"negative_by_reason":negative_kinds,
+                           "id":game.pk,"split":split,"sample_count":len(labels),
                            "positive":sum(not x.ball_absent for x in labels),
                            "negative":sum(x.ball_absent for x in labels),
                            "training_rights":game.ball_training_rights})
@@ -68,22 +81,33 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
             samples.append({"game_id":game.pk,"split":split,
                             "time_seconds":moment,"image":image,"label":label,
                             "ball_absent":bool(item.ball_absent),
+                            "hard_negative_reason":item.hard_negative_reason if item.ball_absent else "",
                             "bbox_xywh_norm":list(rect),
                             "sha256_image":hashlib.sha256(raw).hexdigest()})
     if not any(x["split"]=="train" and not x["ball_absent"] for x in samples):
         raise ValueError("Training split contains no positive basketball examples")
     if not any(x["split"]=="val" for x in samples):
         raise ValueError("Validation split is empty")
-    audit = audit_games(games_info)
+    audit = audit_three_way(games_info) if three_way else audit_games(games_info)
     manifest={"schema_version":1,"classes":["basketball"],"owner_id":str(owner_id),
               "quality_audit":audit,
-              "method":"game-disjoint deterministic SHA256 split",
+              "method":"three_way_sealed_test_v05" if three_way else "game-disjoint deterministic SHA256 split",
+              "test_sealed":bool(three_way),
               "warning":"Annotations must be human verified; no claimed accuracy or automatic score.",
               "games":games_info,"samples":samples}
+    hard_negative_totals={}
+    for row in samples:
+        if row["ball_absent"]:
+            reason=row["hard_negative_reason"] or "unspecified"
+            hard_negative_totals[reason]=hard_negative_totals.get(reason,0)+1
+    audit["hard_negative_by_reason"]=hard_negative_totals
+    audit["distinct_specified_hard_negative_categories"]=len(
+        [x for x in hard_negative_totals if x!="unspecified"])
     (root/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
     (root/"quality_report.json").write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding="utf-8")
     (root/"data.yaml").write_text(
-        f"path: {root.as_posix()}\ntrain: images/train\nval: images/val\nnames:\n  0: basketball\n",
+        f"path: {root.as_posix()}\ntrain: images/train\nval: images/val\n"+
+        ("test: images/test\n" if three_way else "") + "names:\n  0: basketball\n",
         encoding="utf-8")
     return manifest
 
@@ -95,9 +119,12 @@ class Command(BaseCommand):
         parser.add_argument("--out",required=True)
         parser.add_argument("--game-ids",nargs="+",type=int)
         parser.add_argument("--val-ratio",type=float,default=.25)
+        parser.add_argument("--three-way",action="store_true", help="Independent GAME heldout test set, requires at least 6 games")
+        parser.add_argument("--test-ratio",type=float,default=.20)
     def handle(self,*args,**opts):
         try:
-            data=build_dataset(opts["owner_id"],opts["out"],opts["game_ids"],opts["val_ratio"])
+            data=build_dataset(opts["owner_id"],opts["out"],opts["game_ids"],opts["val_ratio"],
+                               three_way=opts["three_way"],test_ratio=opts["test_ratio"])
         except (ValueError,KeyError, get_user_model().DoesNotExist) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(self.style.SUCCESS(
