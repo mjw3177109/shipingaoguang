@@ -119,3 +119,17 @@ python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --o
 - 真实罚球远景中检测框有明显离篮筐的情况；不把该结果描述成进球识别成功。
 
 查看 GitHub Actions 的 `Real Free Throw CPU Comparison` 和 `Free CPU Pretrained Ball Model Comparison` 工作流结果。真实视频下载于测试运行期，仓库不存原片。
+
+## V0.3 篮球专项 CPU 模型与人工位置框训练数据
+
+不覆盖 V0.1/V0.2 原有功能，新增加：
+
+- 比赛详情的 **篮球位置框标注工作台**：指定时间帧画篮球框或标“无球”，按球馆账号权限隔离。
+- **训练授权确认**：修改标注后自动撤销授权状态。管理员运行 `python manage.py export_ball_dataset --owner-id <ID> --out <EMPTY_DIR>`，只导出确认授权的标注。
+- 按整场比赛拆成 train/val，而不是把同一录像的临近帧同时算训练和验证。
+- **单篮球类别** Torchvision Faster R-CNN MobileNetV3-320 CPU 训练、checkpoint 存储和可选 CPU 推理；未审核权重被强制标为 `research_only`，正式推理默认拒绝，研究必须显式 `--allow-research-checkpoint`。
+- 保留现有人工候选审核与 FFmpeg 处理流程。**没有自动判定进球或已获商用认证的模型**。
+
+[完整标注、CPU 训练和评测指南](docs/BASKETBALL_SPECIALIST_V03.md) · [真实两段比赛、四个目视审核球框的小规模 CPU 训练实验](docs/REAL_4_FRAME_PILOT.md)。
+
+**实际结果提醒**：仅四个真实球框的试验已经验证训练及推理工程链路，但两个留出框均未命中，发生大量误检，因此此专项 checkpoint 明确被拦截，不可以部署到篮球馆生产环境。下一阶段须扩充标注数据并进行独立盲测。
