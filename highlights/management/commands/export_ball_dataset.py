@@ -27,8 +27,10 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
     if game_ids:
         qs=qs.filter(pk__in=game_ids)
     games=[g for g in qs if g.ball_frames.exists() and len(g.ball_training_rights.strip())>=12]
-    if len(games)<(6 if three_way else 2):
-        raise ValueError("Require at least six approved games for train/val/test, or two for legacy train/val")
+    if three_way and len(games)<6:
+        raise ValueError("Require at least six approved games for independent train/val/test")
+    if len(games)<2:
+        raise ValueError("Require at least TWO approved labeled games for game-level train/val split")
     if game_ids and set(map(int,game_ids)) != {g.pk for g in games}:
         raise ValueError("Some selected games are not labeled, consented or owned by the selected user")
     root=Path(directory).resolve()
