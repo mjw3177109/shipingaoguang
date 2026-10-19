@@ -56,6 +56,7 @@ def scan_video(video_path, hoops, *, interval=1.5, max_frames=1800,
         preprocess = weights.transforms()
         observations = []
         processed = 0
+        last_decoded_second = None
         for index in range(scheduled):
             t = index * interval
             capture.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
@@ -73,6 +74,7 @@ def scan_video(video_path, hoops, *, interval=1.5, max_frames=1800,
             with torch.inference_mode():
                 predicted = model([preprocess(tensor).to(device_name)])[0]
             processed += 1
+            last_decoded_second = t
             for box, cls, score in zip(predicted["boxes"], predicted["labels"], predicted["scores"]):
                 if int(cls.item()) != sports_ball_id or float(score.item()) < threshold:
                     continue
@@ -84,6 +86,10 @@ def scan_video(video_path, hoops, *, interval=1.5, max_frames=1800,
                 ))
             if progress and (index + 1) % progress == 0:
                 print(f"scanned {index+1}/{scheduled} frames; observations={len(observations)}", flush=True)
+        if processed == 0:
+            raise ValueError("无法解码任何有效视频帧。")
+        covered_until = min(duration, last_decoded_second + interval)
+        incomplete_scan = truncated or (covered_until < duration - .05)
         result = {
             "schema_version": 2,
             "video_duration_seconds": round(duration, 3),
@@ -97,8 +103,8 @@ def scan_video(video_path, hoops, *, interval=1.5, max_frames=1800,
                 "observations": len(observations),
                 "detector_min_confidence": threshold,
                 "min_hits": min_hits,
-                "incomplete_scan": truncated,
-                "analyzed_until_seconds": round(min(duration, scheduled * interval), 2),
+                "incomplete_scan": incomplete_scan,
+                "analyzed_until_seconds": round(covered_until, 2),
                 "elapsed_seconds": round(time.monotonic() - started, 1),
                 "warning": "候选不是投篮命中识别结果；漏检和误报需要人工审核。",
             },

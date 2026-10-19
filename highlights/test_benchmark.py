@@ -8,6 +8,7 @@ from django.urls import reverse
 from .models import Game, ShotAnnotation, Venue
 from .vision.evaluate import evaluate, format_report
 from .vision.tune import search
+from .vision.batch import batch_evaluate
 
 
 class OfflineMetricsTests(TestCase):
@@ -80,6 +81,23 @@ class OfflineMetricsTests(TestCase):
         result = evaluate(clips, gt)
         self.assertIsNone(result["performance"]["recall"])
         self.assertIsNone(result["performance"]["f1"])
+
+    def test_batch_aggregates_events_not_macro_averages(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "a.json").write_text(json.dumps(self.candidates))
+            (base / "b.json").write_text(json.dumps(self.gt))
+            batch = batch_evaluate([
+                {"id": "game-a", "proposals": "a.json", "truth": "b.json"},
+                {"id": "game-b", "proposals": "a.json", "truth": "b.json"},
+            ], base)
+        totals = batch["totals"]
+        self.assertEqual(totals["games"], 2)
+        self.assertEqual(totals["shots"], 6)
+        self.assertEqual(totals["matches"], 4)
+        self.assertEqual(totals["false_positive"], 2)
 
     def test_tolerance_bounded(self):
         self.assertEqual(evaluate(self.candidates, self.gt, tolerance=0)["performance"]["true_positive_matches"], 2)
@@ -166,4 +184,4 @@ class IndependentLabelingTests(TestCase):
         self.assertFalse(self.game.shot_annotations.exists())
         response = self.client.get(reverse("game", args=[self.game.pk]))
         self.assertContains(response, "truth-seconds")
-        self.assertContains(response, "confirm_ground_truth")
+        self.assertContains(response, "/labels/complete/")
