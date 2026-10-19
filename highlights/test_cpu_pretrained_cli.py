@@ -19,6 +19,8 @@ class PretrainedCpuCliTests(SimpleTestCase):
                 "hoops":hoops,
             }))
             output = d / "proposals.json"
+            video = d / "test.webm"
+            video.write_bytes(b"v06 genuine local test-file bytes")
             mock_result = {
                 "schema_version":2, "video_duration_seconds":5.767,
                 "analysis":{"ball_detections":0,"hoop_roi_enabled":True},
@@ -26,11 +28,12 @@ class PretrainedCpuCliTests(SimpleTestCase):
             }
             with patch("highlights.vision.cpu_pretrained.scan_pretrained_cpu",
                        return_value=mock_result) as detector:
-                main(["--video","test.webm","--config",str(config),
+                main(["--video",str(video),"--config",str(config),
                       "--out",str(output),"--tiles","4"])
             self.assertTrue(output.exists())
             saved = json.loads(output.read_text())
             self.assertEqual(saved["game_id"],12)
+            self.assertEqual(len(saved["video_quick_fingerprint_sha256"]),64)
             self.assertEqual(saved["candidates"],[])
             self.assertEqual(detector.call_args.kwargs["hoops"],hoops)
             self.assertEqual(detector.call_args.kwargs["tiles"],4)
@@ -48,11 +51,13 @@ class PretrainedCpuCliTests(SimpleTestCase):
     def test_explicit_research_checkpoint_flag_is_forwarded(self):
         with tempfile.TemporaryDirectory() as folder:
             output=Path(folder)/"out.json"
+            video=Path(folder)/"test.webm"
+            video.write_bytes(b"v06 separate model flag test source")
             fake={"schema_version":2,"video_duration_seconds":5,
                   "analysis":{"checkpoint_used":True},"candidates":[]}
             with patch("highlights.vision.cpu_pretrained.scan_pretrained_cpu",
                        return_value=fake) as scanner:
-                main(["--video","test.webm","--checkpoint","tiny.pt",
+                main(["--video",str(video),"--checkpoint","tiny.pt",
                       "--allow-research-checkpoint","--out",str(output)])
             self.assertEqual(scanner.call_args.kwargs["checkpoint_path"],"tiny.pt")
             self.assertTrue(scanner.call_args.kwargs["allow_research_checkpoint"])
