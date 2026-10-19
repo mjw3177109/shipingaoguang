@@ -21,11 +21,11 @@ jobs:
           curl --fail --location --retry 3 --max-time 110 \
             "https://upload.wikimedia.org/wikipedia/commons/f/f1/VCB_FCB%284%29.webm" -o /tmp/free_throw.webm
           for t in 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0; do
-            key=$(printf '%03d' $(echo "$t*10" | bc | awk '{printf "%.0f", $1}'))
+            key="${t/./}"
             ffmpeg -nostdin -hide_banner -loglevel error -y -ss "$t" -i /tmp/passing.webm \
-              -frames:v 1 -q:v 2 /tmp/frames/passing/t${key}.jpg
+              -frames:v 1 -q:v 2 /tmp/frames/passing/${key}.jpg
             ffmpeg -nostdin -hide_banner -loglevel error -y -ss "$t" -i /tmp/free_throw.webm \
-              -frames:v 1 -q:v 2 /tmp/frames/free_throw/t${key}.jpg
+              -frames:v 1 -q:v 2 /tmp/frames/free_throw/${key}.jpg
           done
           printf '%s\n' "Basketpass.webm - Benoît Prieur - CC0 1.0" \
             "https://commons.wikimedia.org/wiki/File:Basketpass.webm" \
