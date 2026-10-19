@@ -83,3 +83,11 @@ V0.2 引入每场比赛篮筐框选、Torchvision sports ball GPU 检测、篮�
 免费 GPU Notebook：[`notebooks/kaggle_shot_candidates_v02.ipynb`](notebooks/kaggle_shot_candidates_v02.ipynb)。
 
 原 V0.1 的 CPU 声音峰值/手动选片/FFmpeg 导出保留不变；Kaggle 仅为手动研发流程，不支持自动调用 Kaggle 作为收费平台 GPU Worker。
+
+## V0.2 实战评测 + CPU 调参闭环
+
+新支持在比赛播放中人工记录投篮尝试并下载 `ground_truth.json`，从 Kaggle 视觉推理保存 `ball_observations.json` 以后，可以在 **CPU** 上生成 Precision / Recall / F1、每10分钟误报、耗时与费用报告，以及重复搜索不同阈值而不重新占用 GPU。支持最多 100 场的独立汇总。
+
+详细说明：[`docs/V0.2_BENCHMARK_GUIDE.md`](docs/V0.2_BENCHMARK_GUIDE.md)。
+
+注意：`benchmarks/example_*.json` 只有模拟数据，CI 通过不证明篮球事件检测的真实效果。目前没有自动连接 Kaggle 账号或支付算力，真实 GPU 模型和球馆视频仍需独立验证。

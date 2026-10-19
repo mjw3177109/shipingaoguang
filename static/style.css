@@ -5,3 +5,8 @@
 .roi-layer{position:absolute;pointer-events:none;touch-action:none}
 .roi-layer.active{pointer-events:auto;cursor:crosshair;background:rgba(255,170,30,.035)}
 .roi-box{position:absolute;border:2px solid #ffc15d;background:rgba(255,186,71,.12);color:#fff;font-size:12px;font-weight:800;text-shadow:0 1px 3px #000;padding:2px;pointer-events:none}
+
+/* V0.2 human event ground truth panel */
+.truth-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;max-height:220px;overflow:auto}
+.truth-tag{display:flex;align-items:center;border:1px solid #e5e9ef;border-radius:9px;background:#f7f9fc;padding:0 5px}
+.truth-tag form{margin:0}.truth-tag .ghost{padding:6px}

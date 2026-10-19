@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "video_duration_seconds": 120,
+  "analysis": {
+    "kind": "ball_near_hoop_candidate",
+    "device": "synthetic",
+    "incomplete_scan": false,
+    "analyzed_until_seconds": 120,
+    "elapsed_seconds": 4.5
+  },
+  "candidates": [
+    {"start_seconds": 8, "end_seconds": 20, "source": "model_proposal", "score": 0.91},
+    {"start_seconds": 33, "end_seconds": 42, "source": "model_proposal", "score": 0.85},
+    {"start_seconds": 48, "end_seconds": 52, "source": "model_proposal", "score": 0.75}
+  ],
+  "_note": "Synthetic data for CI demonstration ONLY. Not a real basketball benchmark."
+}

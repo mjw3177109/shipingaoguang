@@ -44,7 +44,7 @@ def _near_hoop(observation, rectangle):
             and rectangle["y"] - pady <= observation.y <= rectangle["y"] + rectangle["h"] + pady)
 
 
-def propose_shots(observations, hoops, duration, *, min_hits=2, max_candidates=36):
+def propose_shots(observations, hoops, duration, *, min_hits=2, max_candidates=36, min_confidence=0):
     """Group nearby ball observations around a manually labeled hoop.
     
     A candidate is NOT proof of an attempted or made shot. Confidence is the
@@ -55,12 +55,14 @@ def propose_shots(observations, hoops, duration, *, min_hits=2, max_candidates=3
         raise ValueError("视频时长必须为正数。")
     if not 1 <= min_hits <= 10 or not 1 <= max_candidates <= 100:
         raise ValueError("候选筛选参数不正确。")
+    if not math.isfinite(min_confidence) or not 0 <= min_confidence <= 1:
+        raise ValueError("min_confidence must be 0..1")
     proposals = []
     for index, hoop in enumerate(checked):
         hits = sorted((p for p in observations
                        if (isinstance(p, BallObservation) and
                            all(math.isfinite(v) for v in (p.time, p.x, p.y, p.confidence))
-                           and 0 <= p.time <= duration and 0 <= p.confidence <= 1
+                           and 0 <= p.time <= duration and min_confidence <= p.confidence <= 1
                            and _near_hoop(p, hoop))),
                       key=lambda p: p.time)
         groups = []
