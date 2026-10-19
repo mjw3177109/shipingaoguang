@@ -1,4 +1,4 @@
-# CPU 实战对比：传球（负对照） vs 罚球（投篮片段）
+# CPU 实战对比：传球描述样例 vs 罚球描述样例（两者均未完成逐帧真值标注）
 
 - 已有传球样例：[Basketpass.webm](https://commons.wikimedia.org/wiki/File:Basketpass.webm)，作者 Benoît Prieur，CC0 1.0，5.683 秒。
 - 新增明确罚球描述样例：[VCB FCB(4).webm](https://commons.wikimedia.org/wiki/File:VCB_FCB(4).webm)，作者 Coentor，CC BY-SA 3.0，约 5.8 秒。
@@ -9,3 +9,16 @@
 - GitHub Action 可以手动重跑，测试链接见 Actions > Real Free Throw CPU Comparison。
 
 > 模型边界：当前 CPU OpenCV 是颜色+轮廓+时间筛选的基线，标签是 **ball activity** 而不是 made basket。下一步用视频逐帧人工定位“出手时间”，再通过 `highlights.vision.evaluate` 算真正候选召回率，避免把传球误认为投篮。
+
+## 2026-10-19 第一次真实 CPU 对比
+
+测试成功：[Actions #39216262523](https://github.com/mjw3177109/shipingaoguang/actions/runs/39216262523)
+
+| 公开视频 | FFprobe 实际时长 | CPU 活动候选 | 活动区间 |
+|---|---:|---:|---|
+| Basketpass.webm | 5.680 秒 | 1 段 | 1.00–5.68 秒 |
+| VCB FCB(4).webm | 5.767 秒 | 1 段 | 1.50–5.767 秒 |
+
+**发现**：现有 HSV CPU 基线只确认橙色圆形物体活动，两种片段均产生候选，尚无法区分投篮和传球。这一结果不能作为投篮识别准确率。
+
+新增 `annotated_detections.jpg`（每个识别物体用绿色圆圈标注）与 `frame_observations.json`，帮助排查误检是不是来自橙色球衣、看台或篮球。

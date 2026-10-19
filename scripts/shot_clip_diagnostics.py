@@ -9,7 +9,7 @@ import json
 import math
 from pathlib import Path
 
-from highlights.vision.cpu import scan_cpu_video
+from highlights.vision.cpu import scan_cpu_video, _colored_ball_candidates
 
 
 def main():
@@ -34,6 +34,8 @@ def main():
     dur = output["video_duration_seconds"]
     n = max(4, min(12, int(math.ceil(dur * 2))))
     imgs = []
+    annotated = []
+    observations_per_frame = []
     try:
         for i in range(n):
             t = min(dur - .05, (i+.5) * dur/n)
@@ -49,6 +51,21 @@ def main():
             cv2.putText(resized, f"{t:.2f}s", (8,18),
                         cv2.FONT_HERSHEY_SIMPLEX, .52, (255,255,255), 1)
             imgs.append(resized)
+            marked = resized.copy()
+            detections = _colored_ball_candidates(frame, cv2, np)
+            observations_per_frame.append({
+                "time_seconds": round(t, 3),
+                "orange_round_objects": len(detections),
+                "normalized_centers": [[round(x,3), round(y,3), round(q,3)]
+                                       for x,y,q in detections],
+            })
+            for x,y,q in detections:
+                cx = int(x*marked.shape[1])
+                cy = int(y*(marked.shape[0]-28))
+                cv2.circle(marked, (cx,cy), 7, (0,255,0), 2)
+                cv2.putText(marked, f"{q:.2f}", (cx+6,cy-6),
+                            cv2.FONT_HERSHEY_SIMPLEX, .32, (0,255,0), 1)
+            annotated.append(marked)
     finally:
         cap.release()
     if imgs:
@@ -64,7 +81,21 @@ def main():
         sheet = np.concatenate(rows, axis=0)
         if not cv2.imwrite(str(target / "contact_sheet.jpg"), sheet):
             raise ValueError("Could not write contact sheet")
+        marked_rows = []
+        for i in range(0,len(annotated),3):
+            group = annotated[i:i+3]
+            group = [cv2.copyMakeBorder(img,0,max_height-img.shape[0],0,0,
+                                       cv2.BORDER_CONSTANT,value=(20,20,20))
+                     for img in group]
+            while len(group)<3:
+                group.append(np.zeros_like(padded[0]))
+            marked_rows.append(np.concatenate(group,axis=1))
+        if not cv2.imwrite(str(target/"annotated_detections.jpg"),
+                          np.concatenate(marked_rows,axis=0)):
+            raise ValueError("Could not write detected objects visualization")
 
+    (target / "frame_observations.json").write_text(json.dumps(
+        observations_per_frame, ensure_ascii=False, indent=2))
     result = {
         "source_url": args.source_url,
         "license": args.license,
