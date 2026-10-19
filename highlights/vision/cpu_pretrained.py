@@ -16,7 +16,8 @@ from .cpu import _activity_candidates
 
 
 def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
-                        min_confidence=.16, architecture="mobile320", tiles=1, hoops=None):
+                        min_confidence=.16, architecture="mobile320", tiles=1, hoops=None,
+                        checkpoint_path=None):
     import cv2
     import torch
     from torchvision.models.detection import (
@@ -37,15 +38,30 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
         raise ValueError("architecture must be mobile320 or resnet50")
     torch.set_num_threads(min(4, max(1, os.cpu_count() or 1)))
     start_wall = time.monotonic()
-    if architecture == "mobile320":
-        weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
-        model = fasterrcnn_mobilenet_v3_large_320_fpn(weights=weights)
+    if checkpoint_path:
+        if architecture != "mobile320":
+            raise ValueError("Specialist checkpoint requires --arch mobile320")
+        from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        if (checkpoint.get("architecture") != "mobile320_binary_v1"
+                or checkpoint.get("classes") != ["background","basketball"]):
+            raise ValueError("Unsupported trained basketball checkpoint")
+        model = fasterrcnn_mobilenet_v3_large_320_fpn(weights=None, weights_backbone=None)
+        model.roi_heads.box_predictor = FastRCNNPredictor(
+            model.roi_heads.box_predictor.cls_score.in_features,2)
+        model.load_state_dict(checkpoint["state_dict"],strict=True)
+        ball_class_id = 1
+        preprocess = lambda tensor: tensor.float() / 255
     else:
-        weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
-        model = fasterrcnn_resnet50_fpn(weights=weights)
+        if architecture == "mobile320":
+            weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
+            model = fasterrcnn_mobilenet_v3_large_320_fpn(weights=weights)
+        else:
+            weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
+            model = fasterrcnn_resnet50_fpn(weights=weights)
+        preprocess = weights.transforms()
+        ball_class_id = weights.meta["categories"].index("sports ball")
     model.eval().to("cpu")
-    preprocess = weights.transforms()
-    ball_class_id = weights.meta["categories"].index("sports ball")
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -123,7 +139,8 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
             "video_duration_seconds": round(duration, 3),
             "analysis": {
                 "kind": "pretrained_coco_sports_ball_cpu",
-                "model": f"torchvision_fasterrcnn_{architecture}",
+                "model": "basketball_specialist_mobile320_v1" if checkpoint_path else f"torchvision_fasterrcnn_{architecture}",
+                "checkpoint_used": bool(checkpoint_path),
                 "tiles_per_frame": tiles,
                 "hoop_roi_enabled": bool(checked_hoops),
                 "device": "cpu",
@@ -155,13 +172,15 @@ def main(argv=None):
     p.add_argument("--arch", choices=("mobile320","resnet50"), default="mobile320")
     p.add_argument("--tiles", choices=(1,4), type=int, default=1)
     p.add_argument("--config", help="Optional Django hoop ROI JSON")
+    p.add_argument("--checkpoint", help="Opt-in HUMAN-BOX-trained specialist weights")
     args = p.parse_args(argv)
     config = json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
     if args.config and not config.get("hoops"):
         raise ValueError("--config must contain at least one hoop region")
     result = scan_pretrained_cpu(args.video, interval=args.interval,
                max_frames=args.max_frames, min_confidence=args.threshold,
-               architecture=args.arch, tiles=args.tiles, hoops=config.get("hoops"))
+               architecture=args.arch, tiles=args.tiles, hoops=config.get("hoops"),
+               checkpoint_path=args.checkpoint)
     if config:
         if "game_id" in config:
             result["game_id"] = config["game_id"]

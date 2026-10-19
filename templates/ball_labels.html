@@ -1,0 +1,49 @@
+{% extends "base.html" %}{% load static %}
+{% block title %}篮球框标注 · {{ game.title }}{% endblock %}
+{% block body %}
+<a href="{% url 'game' game.pk %}" class="back">← 返回比赛</a>
+<div class="heading"><div><div class="eyebrow">V0.3 / 专项训练集建设</div><h1>篮球外接框人工标注</h1>
+<p class="muted">{{ game.title }} · {{ game.duration_seconds|floatformat:2 }} 秒</p></div>
+<span class="pill">已标 {{ labels|length }} 帧</span></div>
+<div class="columns wide">
+<section class="panel">
+<h2>一、选择画面并框选篮球</h2>
+<p class="hint">选取可见篮球的帧，用鼠标或触屏拖动框选。没有球的帧必须主动标记“无球”作为负样本。请勿框住球衣、篮圈或人的身体。</p>
+<video controls id="label-video" preload="metadata" style="width:100%" src="{% url 'source_video' game.pk %}"></video>
+<div class="actions">
+<button id="use-video-time" type="button" class="secondary">使用当前播放时间</button>
+<button id="load-frame" type="button" class="secondary">载入该时间帧</button></div>
+<div class="ball-frame-box"><img id="label-image" alt="当前球框标注帧，拖拽框选" src="{% url 'ball_frame_jpg' game.pk %}?t=0" draggable="false">
+<canvas id="ball-canvas" aria-label="在此拖拽篮球外接框"></canvas></div>
+<p class="hint" id="frame-message">标注坐标相对于视频画面，导出时会映射回原始视频分辨率。</p>
+</section>
+<section class="panel">
+<h2>二、保存人工真值</h2>
+<form action="{% url 'save_ball_label' game.pk %}" method="post" id="label-form" class="stack">{% csrf_token %}
+<label>帧时间（秒）<input id="ball-time" name="time_seconds" min="0" max="{{ game.duration_seconds }}" type="number" step=".01" value="0" required></label>
+<div class="two"><label>x<input type="number" id="ball-x" name="x" step="0.00001" readonly></label>
+<label>y<input type="number" id="ball-y" name="y" step="0.00001" readonly></label>
+<label>宽度 w<input type="number" id="ball-w" name="w" step="0.00001" readonly></label>
+<label>高度 h<input type="number" id="ball-h" name="h" step="0.00001" readonly></label></div>
+<label><input type="checkbox" id="ball-absent" name="ball_absent" value="yes" style="width:auto"> 本帧确认无球（负样本）</label>
+<button class="primary" type="submit">保存此帧标注</button>
+</form>
+<hr><h2>三、训练数据授权确认</h2>
+<p class="hint">上传篮球馆录像不等于拥有模型训练许可。请确保视频拍摄、相关人员授权以及数据处理依据允许该用途。</p>
+<form method="post" action="{% url 'approve_training_data' game.pk %}" class="stack">{% csrf_token %}
+<label>素材授权与来源依据<input name="rights_note" maxlength="240" value="{{ game.ball_training_rights }}" placeholder="例如：公开视频 CC0；具体来源 URL、授权条款" required></label>
+<div class="actions"><button name="approve" value="yes" class="approved">确认可用于训练</button>
+<button name="approve" value="no" class="ghost">撤销许可确认</button></div></form>
+<p class="hint">当前：{% if game.ball_training_approved %}已确认授权，可被管理员训练集导出工具读取。{% else %}未确认授权，不允许导出到训练集。{% endif %}</p>
+</section></div>
+<section class="panel"><h2>已标注的画面</h2><div class="table-scroll">
+<table><thead><tr><th>时间</th><th>标注</th><th>坐标</th><th>删除</th></tr></thead><tbody>
+{% for item in labels %}<tr><td><button type="button" class="ghost" onclick="loadLabeledFrame({{ item.time_seconds }})">{{ item.time_seconds|floatformat:2 }}s</button></td>
+<td>{% if item.ball_absent %}无球（负样本）{% else %}篮球{% endif %}</td><td>{% if not item.ball_absent %}{{ item.x|floatformat:3 }}, {{ item.y|floatformat:3 }}, {{ item.w|floatformat:3 }}, {{ item.h|floatformat:3 }}{% else %}—{% endif %}</td>
+<td><form method="post" action="{% url 'delete_ball_label' game.pk item.pk %}">{% csrf_token %}<button class="danger-button" type="submit">删除</button></form></td></tr>
+{% empty %}<tr><td colspan="4" class="muted">暂无球框标注。从上面的视频选择第一帧。</td></tr>{% endfor %}
+</tbody></table></div></section>
+<link rel="stylesheet" href="{% static 'ball-labels.css' %}">
+<script>window.ballFrameUrl="{% url 'ball_frame_jpg' game.pk %}";</script>
+<script src="{% static 'ball-labels.js' %}" defer></script>
+{% endblock %}

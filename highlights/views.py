@@ -413,3 +413,8 @@ def export_video(request, pk, export_id):
     game = _game(request, pk)
     export = get_object_or_404(Export, pk=export_id, game=game, state="done")
     return _private_media(request, export.video, download=True)
+
+
+# V0.3 independent owner-only video frame labeling UI
+from .ball_views import (ball_labels, ball_frame_jpg, save_ball_label,
+                         delete_ball_label, approve_training_data)

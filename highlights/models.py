@@ -36,6 +36,8 @@ class Game(models.Model):
     duration_seconds = models.FloatField(default=0)
     hoops = models.JSONField(default=list, blank=True)  # V0.2 calibrated hoop regions
     annotations_complete = models.BooleanField(default=False)
+    ball_training_approved = models.BooleanField(default=False)
+    ball_training_rights = models.CharField(max_length=240, blank=True)
     analysis_engine = models.CharField(max_length=16, default="audio", choices=[("audio", "声音峰值"), ("cpu", "CPU 球状物体候选")])
     state = models.CharField(max_length=16, choices=State.choices, default=State.UPLOADED)
     error = models.TextField(blank=True)
@@ -91,3 +93,22 @@ class ShotAnnotation(models.Model):
 
     class Meta:
         ordering = ["time_seconds", "id"]
+
+
+class BallFrameAnnotation(models.Model):
+    """Independent human frame-level ball bbox (or explicit ball-absent negative)."""
+    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="ball_frames")
+    time_seconds = models.FloatField()
+    ball_absent = models.BooleanField(default=False)
+    x = models.FloatField(default=0)
+    y = models.FloatField(default=0)
+    w = models.FloatField(default=0)
+    h = models.FloatField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["time_seconds", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["game", "time_seconds"],
+                                    name="unique_ball_frame_time"),
+        ]
