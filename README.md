@@ -160,3 +160,14 @@ python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --o
 - 保留 V0.1–V0.5 的音频/颜色候选、人工标注、审核、视频导出等功能。Torch 仍只装在独立的研究 CPU 环境。
 - 未通过 V0.5 的独立真实数据盲测之前，所有专项权重依旧为 `research_only`，**不得默认部署到生产**。
 - [完整研究模型连接与操作说明](docs/V06_RESEARCH_OBSERVATIONS.md)。V0.6 GitHub Actions 使用真实公开视频+**合成观测**验证工程出片，不代表真实篮球动作识别准确率。
+
+## V0.7：人工二次复核与严格训练数据导出
+
+- 篮球框标注页支持 **保存并跳下一待审帧**、**回看原框** 和 **每条记录独立二次复核**，标签修改后复核状态自动失效。
+- 保存复核人及时间，可查看完成进度并每页分页 50 帧，不会因为历史 500 条显示上限而看不到旧标签。
+- 完全保留旧数据：所有历史球框默认`未复核`，绝不自动标记合格；旧版双集合研究导出仍有效。
+- 可选严格导出：`python manage.py export_ball_dataset --owner-id 1 --out /tmp/v07 --three-way --verified-only`。该模式不接受未经完整二次复核的授权比赛，V0.5 同场评测亦要求审核记录。
+- `python -m highlights.vision.review_readiness_v07 --manifest /tmp/v07/manifest.json --out /tmp/v07/readiness.json` 给出正负样本、复核量、覆盖门槛报告，**不等于模型精度**。
+- 在 GitHub Actions 用许可明确的真实视频已选四帧历史球框进行数据就绪性审查，因无负例、无二次复核、样本不足，明确报告未达标，不声称高光识别提升。
+
+完整操作和数据使用边界： [docs/V07_VERIFIED_LABEL_PIPELINE.md](docs/V07_VERIFIED_LABEL_PIPELINE.md)。

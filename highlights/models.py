@@ -103,6 +103,12 @@ class BallFrameAnnotation(models.Model):
     time_seconds = models.FloatField()
     ball_absent = models.BooleanField(default=False)
     hard_negative_reason = models.CharField(max_length=24, blank=True, default="")
+    quality_verified = models.BooleanField(default=False)
+    quality_verified_at = models.DateTimeField(null=True, blank=True)
+    quality_verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="verified_ball_frames")
+
     x = models.FloatField(default=0)
     y = models.FloatField(default=0)
     w = models.FloatField(default=0)

@@ -21,6 +21,7 @@ class Command(BaseCommand):
         ).annotate(
             positive=Count("ball_frames",filter=Q(ball_frames__ball_absent=False)),
             negative=Count("ball_frames",filter=Q(ball_frames__ball_absent=True)),
+            verified=Count("ball_frames",filter=Q(ball_frames__quality_verified=True)),
         ).order_by("pk").values("id","positive","negative"))
         # Model quality report uses deterministic game split; maintain sample-only
         # audit fallback but do not claim a valid split before export.
@@ -29,6 +30,10 @@ class Command(BaseCommand):
             "positive_frames":sum(row["positive"] for row in games),
             "explicit_negative_frames":sum(row["negative"] for row in games),
             "by_game":games,
+            "verified_frames":sum(row["verified"] for row in games),
+            "unverified_frames":sum(row["positive"]+row["negative"]-row["verified"] for row in games),
+            "all_approved_labels_secondary_verified":all(
+                row["verified"]==row["positive"]+row["negative"] for row in games),
             "meets_coverage_minimum_before_split":(
                 len(games)>=4 and sum(x["positive"] for x in games)>=120
                 and sum(x["negative"] for x in games)>=40),

@@ -1,0 +1,54 @@
+name: V0.7 Real Footage Label Readiness (Research Only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/v07-verified-labels-and-cpu-audit]
+    paths:
+      - "highlights/vision/review_readiness_v07.py"
+      - ".github/workflows/v07-real-annotation-quality.yml"
+jobs:
+  historical-real-frame-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FFmpeg only
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Download CC-licensed basketball clips
+        run: |
+          mkdir -p /tmp/v07-licensed
+          curl -fL --retry 3 --max-time 110 "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" -o /tmp/v07-licensed/passing.webm
+          curl -fL --retry 3 --max-time 110 "https://upload.wikimedia.org/wikipedia/commons/f/f1/VCB_FCB%284%29.webm" -o /tmp/v07-licensed/free_throw.webm
+      - name: Extract actual historically hand-reviewed basketball frames
+        run: |
+          python -m scripts.real_ball_box_pilot \
+            --annotations benchmarks/real_ball_boxes_pilot.json \
+            --videos /tmp/v07-licensed --out /tmp/v07-real-frames
+      - name: Confirm data insufficient instead of inventing pass
+        run: |
+          python -m highlights.vision.review_readiness_v07 \
+            --manifest /tmp/v07-real-frames/manifest.json \
+            --out /tmp/v07-readiness.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("/tmp/v07-readiness.json").read_text())
+          assert p["frames"] == 4
+          assert p["positive_frames"] == 4
+          assert p["explicit_negative_frames"] == 0
+          assert p["verified_frames"] == 0
+          assert p["eligible_for_independent_model_benchmark"] is False
+          assert p["production_release"] is False
+          print("REAL VIDEO PILOT NOT READY: four frames, zero negatives, no second-pass records")
+          PY
+      - name: Upload readiness report ONLY - no original video, derived frames or unapproved weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v07-real-footage-four-labels-not-ready
+          path: /tmp/v07-readiness.json
+          retention-days: 7
+          if-no-files-found: warn
