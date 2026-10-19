@@ -61,7 +61,8 @@ class CpuExperimentGateTests(SimpleTestCase):
         m = self._manifest()
         m["synthetic"] = False
         m["WARNING"] = "Manual audit placeholder"
-        m["samples"][0]["split"] = "test"
+        changed = next(x for x in m["samples"] if x["split"] == "train")
+        changed["split"] = "test"
         m["games"][0]["positive"] += 999
         self._replace_manifest(m)
         report = inspect_dataset(self.root)
@@ -116,8 +117,10 @@ class CpuExperimentGateTests(SimpleTestCase):
     def test_dry_run_with_authenticity_flag_in_unit_fixture_is_only_preflight(self):
         # Unit test of non-synthetic path logic, not evidence of real human labels.
         m = self._manifest()
+        # This deliberately clears fixture markers ONLY to test the positive
+        # control flow. It is NOT valid evidence of a genuine human dataset.
         m["synthetic"] = False
-        m["WARNING"] = "UNIT FIXTURE: fake pixels used to validate code only"
+        m.pop("WARNING", None)
         self._replace_manifest(m)
         audit = inspect_dataset(self.root)
         self.assertTrue(audit["allow_cpu_research_experiment"])
