@@ -1,0 +1,51 @@
+name: V0.6 Real Video Review-to-Render Bridge (Fixture Observations)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/v06-research-review-bridge]
+    paths:
+      - "highlights/vision/bridge_v06.py"
+      - "highlights/v06_views.py"
+      - "scripts/v06_real_review_smoke.py"
+      - ".github/workflows/v06-real-bridge-smoke.yml"
+jobs:
+  v06-real-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "ci-only-v06-demo"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU Django, OpenCV and FFmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Fetch verifiable CC0 basketball footage
+        run: |
+          mkdir -p /tmp/v06-input /tmp/v06-result
+          curl --fail --location --retry 3 --max-time 110 \
+            "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" \
+            -o /tmp/v06-input/Basketpass.webm
+          test "$(stat -c%s /tmp/v06-input/Basketpass.webm)" -gt 100000
+          ffprobe -v error -show_entries format=duration,size -of json /tmp/v06-input/Basketpass.webm
+      - name: Run V0.6 import, simulated human review and actual FFmpeg export
+        run: |
+          python manage.py migrate --noinput
+          python scripts/v06_real_review_smoke.py \
+            --video /tmp/v06-input/Basketpass.webm --out /tmp/v06-result
+          ffprobe -v error -show_entries format=duration,size -of json /tmp/v06-result/integration_highlight.mp4
+      - name: Publish actual video + honest fixture audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v06-real-video-synthetic-observation-integration
+          path: |
+            /tmp/v06-result/integration_highlight.mp4
+            /tmp/v06-result/report.json
+          retention-days: 7
+          if-no-files-found: warn

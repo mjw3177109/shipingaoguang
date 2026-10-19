@@ -11,6 +11,7 @@ urlpatterns = [
     path("games/<int:pk>/clips/<int:candidate_id>/review/", views.review_candidate, name="review_candidate"),
     path("games/<int:pk>/exports/new/", views.queue_export, name="queue_export"),
     path("games/<int:pk>/import/", views.import_proposals, name="import_proposals"),
+    path("games/<int:pk>/research-observations/import/", views.import_research_observations, name="import_research_observations"),
     path("games/<int:pk>/hoops/", views.save_hoops, name="save_hoops"),
     path("games/<int:pk>/vision-config/", views.vision_config, name="vision_config"),
     path("games/<int:pk>/labels/new/", views.add_shot_annotation, name="add_shot_annotation"),
