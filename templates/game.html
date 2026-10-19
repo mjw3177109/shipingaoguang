@@ -36,7 +36,14 @@
 <hr><h2>导入 Kaggle / GPU 篮筐附近候选</h2><p class="muted small">先框选篮筐并下载配置 JSON，在 Kaggle 对同一场录像运行视觉模型；候选不代表进球命中，必须人工审核。</p>
 <form action="{% url 'import_proposals' game.pk %}" method="post" enctype="multipart/form-data" class="stack">{% csrf_token %}
 <label>候选 JSON<input type="file" name="proposals" accept=".json,application/json" required></label>
-<button class="secondary" type="submit">导入候选片段</button></form></section></div>
+<button class="secondary" type="submit">导入候选片段</button></form>
+<hr><h2>V0.6 · CPU 研究模型连续球轨迹（待人工审核）</h2>
+<p class="muted small">只接受同场视频、相同篮筐框、已完整扫描、带研究专用权重的 CPU 模型观测 JSON。系统根据至少三个连续时刻的篮筐附近运动提出候选，不是识别进球。不会自动通过，也不会自动导出视频。</p>
+<form action="{% url 'import_research_observations' game.pk %}" method="post" enctype="multipart/form-data" class="stack">{% csrf_token %}
+<label>研究模型原始观测 JSON<input type="file" name="observations" accept=".json,application/json" required></label>
+<button class="secondary" type="submit">筛选连续球轨迹并加入待审列表</button>
+</form>
+<p class="hint">先在研究环境用原始录像、正式篮筐配置和试验 checkpoint 执行 CPU 推理；观测文件必须来自此视频且完整扫描。零候选会明确提示。</p></section></div>
 <section class="panel"><h2>④ 篮球位置框标注 / 专项模型训练数据</h2><p class="muted small">逐帧标记篮球外接框，或明确标记“本帧无球”。这些数据独立于高光候选，只在人工确认素材权利后用于训练。</p><a class="inline-link" href="{% url 'ball_labels' game.pk %}">打开篮球框标注工作台 →</a></section>
 <section class="panel" id="truth-labeling">
 <div class="section-bar"><div><h2>③ 实测标注：人工投篮尝试时间点（{{ annotations|length }}）</h2>

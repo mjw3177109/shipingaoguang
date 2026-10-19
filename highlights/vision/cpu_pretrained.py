@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from .cpu import _activity_candidates
+from .bridge_v06 import media_quick_fingerprint
 
 
 def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
@@ -139,6 +140,9 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
         return {
             "schema_version": 2,
             "video_duration_seconds": round(duration, 3),
+            "review_only": True,
+            "research_only": bool(checkpoint_path),
+            "observations_truncated": len(observations)>500,
             "analysis": {
                 "kind": "pretrained_coco_sports_ball_cpu",
                 "model": "basketball_specialist_mobile320_v1" if checkpoint_path else f"torchvision_fasterrcnn_{architecture}",
@@ -191,6 +195,7 @@ def main(argv=None):
             result["game_id"] = config["game_id"]
         if "video_duration_seconds" in config and abs(float(config["video_duration_seconds"]) - result["video_duration_seconds"]) > 3:
             raise ValueError("Hoop config does not match source video duration")
+    result["video_quick_fingerprint_sha256"] = media_quick_fingerprint(args.video)
     dst = Path(args.out)
     dst.parent.mkdir(parents=True,exist_ok=True)
     dst.write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding="utf-8")
