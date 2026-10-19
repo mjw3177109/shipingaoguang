@@ -8,12 +8,13 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
-from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import Candidate, Export, Game, Venue
 from .services import MediaError, probe_duration
+from .vision.events import validate_hoops
 
 
 def _game(request, pk):
@@ -167,6 +168,42 @@ def queue_export(request, pk):
 
 @login_required
 @require_POST
+def save_hoops(request, pk):
+    game = _game(request, pk)
+    try:
+        raw = request.POST.get("hoops", "")
+        if len(raw) > 3000:
+            raise ValueError("篮筐区域数据过长。")
+        regions = json.loads(raw)
+        hoops = [] if regions == [] else validate_hoops(regions)
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        messages.error(request, f"篮筐标定无效：{exc}")
+    else:
+        game.hoops = hoops
+        game.save(update_fields=["hoops"])
+        messages.success(request, f"已保存 {len(hoops)} 个篮筐区域。")
+    return redirect("game", pk=pk)
+
+
+@login_required
+@require_GET
+def vision_config(request, pk):
+    game = _game(request, pk)
+    if not game.hoops:
+        return HttpResponse("请先标定篮筐区域。", status=400, content_type="text/plain; charset=utf-8")
+    response = JsonResponse({
+        "schema_version": 2,
+        "game_id": game.pk,
+        "video_duration_seconds": round(game.duration_seconds, 3),
+        "hoops": validate_hoops(game.hoops),
+    }, json_dumps_params={"ensure_ascii": False})
+    response["Content-Disposition"] = f'attachment; filename="game-{game.pk}-hoops.json"'
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
+@login_required
+@require_POST
 def import_proposals(request, pk):
     """Import GPU *proposals*, not confirmed scores; every new clip remains pending."""
     game = _game(request, pk)
@@ -176,6 +213,17 @@ def import_proposals(request, pk):
         return redirect("game", pk=pk)
     try:
         payload = json.loads(incoming.read().decode("utf-8-sig"))
+        if not isinstance(payload, dict) or payload.get("schema_version", 1) not in (1, 2):
+            raise ValueError("不支持的候选 JSON schema_version。")
+        if "game_id" in payload and str(payload["game_id"]) != str(game.pk):
+            raise ValueError("此 JSON 属于另一场比赛。")
+        if "video_duration_seconds" in payload:
+            try:
+                candidate_duration = float(payload["video_duration_seconds"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError("视频时长无效。") from exc
+            if not math.isfinite(candidate_duration) or abs(candidate_duration - game.duration_seconds) > 3:
+                raise ValueError("候选视频时长与该比赛不匹配。")
         items = payload["candidates"]
         if not isinstance(items, list) or not 1 <= len(items) <= 100:
             raise ValueError("JSON candidates 必须包含 1 到 100 个片段。")
