@@ -54,7 +54,8 @@ python -m highlights.vision.train_specialist --dataset /tmp/basketball-dataset \
 python -m highlights.vision.cpu_pretrained --video match.mp4 \
   --checkpoint /tmp/basketball-specialist.pt \
   --config game-123-hoops.json \
-  --out basketball-candidates.json --arch mobile320 --tiles 4
+  --out basketball-candidates.json --arch mobile320 --tiles 4 \\
+  --allow-research-checkpoint
 ```
 
 因为训练好的模型使用的是单篮球分类头，代码会加载 checkpoint 的类别和架构信息，并使用对应的类别 ID。**如出现空候选，必须如实显示，不可自动声称成功**。推理结果使用此前的 V2 JSON，可回到同一场比赛 Django 页面导入、人工逐条审核，再走原 FFmpeg 导出。
@@ -84,3 +85,5 @@ python -m highlights.vision.cpu_pretrained --video match.mp4 \
 5. 训练和验证按完整比赛划分，不发生同场帧泄漏。
 6. 模型初始权重与篮球专用 checkpoint 类别不混淆。
 7. 输出只生成**待人工审核**的候选片段，不能冒充已进球。
+
+**保护措施**：所有当前训练器生成的权重都标为 `research_only=true`，推理时默认拒绝；上面示例显式加的研究参数只允许在受控实验环境使用。还没有经过独立验收的“可以用于生产”的篮球专项模型。

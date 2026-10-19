@@ -17,7 +17,7 @@ from .cpu import _activity_candidates
 
 def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
                         min_confidence=.16, architecture="mobile320", tiles=1, hoops=None,
-                        checkpoint_path=None):
+                        checkpoint_path=None, allow_research_checkpoint=False):
     import cv2
     import torch
     from torchvision.models.detection import (
@@ -43,6 +43,8 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
             raise ValueError("Specialist checkpoint requires --arch mobile320")
         from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
         checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        if checkpoint.get("research_only", True) and not allow_research_checkpoint:
+            raise ValueError("Prototype model is blocked by default; use --allow-research-checkpoint only for offline experiments")
         if (checkpoint.get("architecture") != "mobile320_binary_v1"
                 or checkpoint.get("classes") != ["background","basketball"]):
             raise ValueError("Unsupported trained basketball checkpoint")
@@ -173,6 +175,8 @@ def main(argv=None):
     p.add_argument("--tiles", choices=(1,4), type=int, default=1)
     p.add_argument("--config", help="Optional Django hoop ROI JSON")
     p.add_argument("--checkpoint", help="Opt-in HUMAN-BOX-trained specialist weights")
+    p.add_argument("--allow-research-checkpoint", action="store_true",
+                   help="Allow using an unverified prototype checkpoint for private experiments ONLY")
     args = p.parse_args(argv)
     config = json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
     if args.config and not config.get("hoops"):
@@ -180,7 +184,8 @@ def main(argv=None):
     result = scan_pretrained_cpu(args.video, interval=args.interval,
                max_frames=args.max_frames, min_confidence=args.threshold,
                architecture=args.arch, tiles=args.tiles, hoops=config.get("hoops"),
-               checkpoint_path=args.checkpoint)
+               checkpoint_path=args.checkpoint,
+               allow_research_checkpoint=args.allow_research_checkpoint)
     if config:
         if "game_id" in config:
             result["game_id"] = config["game_id"]

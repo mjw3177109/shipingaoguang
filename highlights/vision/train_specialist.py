@@ -89,6 +89,7 @@ def train(dataset, output, *, epochs=1, max_steps=50, device="cpu", pretrained=T
     # Record provenance, split, one-class head and inference architecture.
     torch.save({"state_dict":model.state_dict(),"classes":["background","basketball"],
                 "architecture":"mobile320_binary_v1",
+                "research_only": True,  # Needs manual model promotion, never auto production
                 "training_game_ids":sorted(train_ids),
                 "validation_game_ids":sorted(val_ids)},
                destination)
@@ -106,6 +107,8 @@ def train(dataset, output, *, epochs=1, max_steps=50, device="cpu", pretrained=T
     summary={
         "schema_version":1,
         "warning":"Only basketball bounding-box metrics. NEVER infer made shots or highlight recall.",
+        "research_only": True,
+        "model_release_gate":"NOT RELEASED: requires independently audited multi-game annotations and human signoff",
         "data_source":"explicitly approved human video-frame annotations",
         "train_games":len(train_ids),"val_games":len(val_ids),
         "train_images":len(train_rows),"val_images":len(val_rows),

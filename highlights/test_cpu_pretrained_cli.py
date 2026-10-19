@@ -34,6 +34,7 @@ class PretrainedCpuCliTests(SimpleTestCase):
             self.assertEqual(saved["candidates"],[])
             self.assertEqual(detector.call_args.kwargs["hoops"],hoops)
             self.assertEqual(detector.call_args.kwargs["tiles"],4)
+            self.assertFalse(detector.call_args.kwargs["allow_research_checkpoint"])
 
     def test_invalid_empty_roi_config_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -43,3 +44,15 @@ class PretrainedCpuCliTests(SimpleTestCase):
             with self.assertRaisesRegex(ValueError,"at least one hoop"):
                 main(["--video","fake.webm","--out",str(d/"out.json"),
                       "--config",str(config)])
+
+    def test_explicit_research_checkpoint_flag_is_forwarded(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/"out.json"
+            fake={"schema_version":2,"video_duration_seconds":5,
+                  "analysis":{"checkpoint_used":True},"candidates":[]}
+            with patch("highlights.vision.cpu_pretrained.scan_pretrained_cpu",
+                       return_value=fake) as scanner:
+                main(["--video","test.webm","--checkpoint","tiny.pt",
+                      "--allow-research-checkpoint","--out",str(output)])
+            self.assertEqual(scanner.call_args.kwargs["checkpoint_path"],"tiny.pt")
+            self.assertTrue(scanner.call_args.kwargs["allow_research_checkpoint"])

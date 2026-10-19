@@ -49,6 +49,7 @@ jobs:
         run: |
           python -m highlights.vision.cpu_pretrained \
             --checkpoint /tmp/basketball-specialist-real-pilot.pt \
+            --allow-research-checkpoint \
             --video /tmp/basketball-real-pilot/free_throw.webm \
             --out /tmp/basketball-specialist-real-proposals.json \
             --arch mobile320 --interval 0.8 --max-frames 12 --threshold 0.20
