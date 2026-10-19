@@ -19,12 +19,19 @@
            y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))};}
   function rect(a,b){return{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),
     w:Math.abs(a.x-b.x),h:Math.abs(a.y-b.y)};}
-  function loadFrame(time){if(!Number.isFinite(time)||time<0){msg.textContent='请输入有效的时间';return;}
-    absent.checked=false;box=null;put(null);clock.value=time.toFixed(2);
+  function loadFrame(time, existing){if(!Number.isFinite(time)||time<0){msg.textContent='请输入有效的时间';return;}
+    absent.checked=Boolean(existing&&existing.absent);
+    box=existing&&!existing.absent?existing.box:null;
+    put(box);clock.value=time.toFixed(2);
     img.src=window.ballFrameUrl+"?t="+encodeURIComponent(clock.value);
     msg.textContent="当前帧："+clock.value+" 秒；框选篮球或选无球。";
   }
   window.loadLabeledFrame=loadFrame;
+  window.reviewBallFrame=(time,x,y,w,h,isAbsent)=>{
+    loadFrame(Number(time),{absent:Boolean(isAbsent),
+      box:{x:Number(x),y:Number(y),w:Number(w),h:Number(h)}});
+    document.getElementById("ball-canvas").scrollIntoView({behavior:"smooth",block:"center"});
+  };
   document.getElementById("use-video-time").addEventListener("click",()=>{clock.value=video.currentTime.toFixed(2);});
   document.getElementById("load-frame").addEventListener("click",()=>loadFrame(Number(clock.value)));
   img.addEventListener("load",sync);
@@ -39,5 +46,9 @@
   absent.addEventListener("change",()=>{if(absent.checked){box=null;put(null);}});
   document.getElementById("label-form").addEventListener("submit",e=>{
     if(!absent.checked && (!box||box.w<.003||box.h<.003)){e.preventDefault();alert("请在图片上框住篮球，或选择本帧无球。");}});
+  const requested=new URLSearchParams(window.location.search).get("t");
+  if(requested!==null && Number.isFinite(Number(requested)) && Number(requested)>=0) {
+    loadFrame(Number(requested));
+  }
   requestAnimationFrame(sync);
 })();

@@ -6,7 +6,9 @@ import subprocess
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.utils import timezone
 from django.http import HttpResponse
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
@@ -41,10 +43,17 @@ def extract_frame_jpeg(game, t, *, width=960):
 @require_GET
 def ball_labels(request, pk):
     game = _owner_game(request, pk)
-    rows = game.ball_frames.order_by("time_seconds")[:500]
+    page = Paginator(game.ball_frames.order_by("time_seconds"), 50).get_page(request.GET.get("page"))
+    rows = page.object_list
+    total = game.ball_frames.count()
+    reviewed = game.ball_frames.filter(quality_verified=True).count()
     suggestions = game.ball_suggestions.order_by("time_seconds")[:50]
     return render(request, "ball_labels.html", {"game":game, "labels":rows,
-                                                "suggestions":suggestions})
+                                                "suggestions":suggestions,
+                                                "page_obj":page,
+                                                "verified_count":reviewed,
+                                                "annotation_count":total,
+                                                "unverified_count":total-reviewed})
 
 
 @login_required
@@ -87,11 +96,19 @@ def save_ball_label(request, pk):
         BallFrameAnnotation.objects.update_or_create(
             game=game,time_seconds=moment,
             defaults={"ball_absent":absent,"hard_negative_reason":negative_reason,
-                      "x":x,"y":y,"w":w,"h":h})
+                      "x":x,"y":y,"w":w,"h":h,
+                      "quality_verified":False,
+                      "quality_verified_at":None,
+                      "quality_verified_by":None})
         BallFrameSuggestion.objects.filter(game=game,time_seconds__gte=moment-.02,
                                            time_seconds__lte=moment+.02).delete()
         Game.objects.filter(pk=pk).update(ball_training_approved=False)
-    messages.success(request, f"已保存 {moment:.2f}s 球框标注。训练许可确认需重新提交。")
+    messages.success(request, f"已保存 {moment:.2f}s 球框标注。二次复核及训练许可需要重新确认。")
+    if request.POST.get("save_next") == "yes":
+        remaining = list(game.ball_suggestions.order_by("time_seconds").values_list("time_seconds", flat=True)[:50])
+        if remaining:
+            next_time=next((v for v in remaining if v > moment+.03), remaining[0])
+            return redirect(f"{reverse('ball_labels', kwargs={'pk':pk})}?t={next_time:.2f}")
     return redirect("ball_labels",pk=pk)
 
 
@@ -135,4 +152,52 @@ def queue_ball_sampling(request, pk):
         messages.success(request,"CPU 智能抽帧已排队；标注建议不等于真实篮球标签。")
     else:
         messages.info(request,"此场比赛已经在等待或运行 CPU 抽帧。")
+    return redirect("ball_labels",pk=pk)
+
+
+@login_required
+@require_POST
+def verify_ball_label(request, pk, label_id):
+    """Explicit second inspection required after a label is entered/edited."""
+    game=_owner_game(request,pk)
+    label=get_object_or_404(BallFrameAnnotation, pk=label_id, game=game)
+    if request.POST.get("verified")!="yes":
+        messages.error(request, "必须逐帧查看后，明确确认本帧标注已复核。")
+        return redirect("ball_labels",pk=pk)
+    # A positive must contain a valid bbox; absent must contain no stored bbox.
+    try:
+        validate_ball_label(
+            label.time_seconds,
+            None if label.ball_absent else {
+                "x":label.x,"y":label.y,"w":label.w,"h":label.h},
+            game.duration_seconds, absent=label.ball_absent)
+    except ValueError as exc:
+        messages.error(request,f"本帧无法通过数据复核：{exc}")
+        return redirect("ball_labels",pk=pk)
+    if not label.quality_verified:
+        with transaction.atomic():
+            label.quality_verified=True
+            label.quality_verified_at=timezone.now()
+            label.quality_verified_by=request.user
+            label.save(update_fields=[
+                "quality_verified","quality_verified_at","quality_verified_by"])
+            Game.objects.filter(pk=game.pk).update(ball_training_approved=False)
+    messages.success(request,f"{label.time_seconds:.2f}s 二次复核通过；仍需在训练数据授权区重新确认授权。")
+    return redirect("ball_labels",pk=pk)
+
+
+@login_required
+@require_POST
+def revoke_ball_verification(request, pk, label_id):
+    game=_owner_game(request,pk)
+    label=get_object_or_404(BallFrameAnnotation,pk=label_id,game=game)
+    if label.quality_verified:
+        with transaction.atomic():
+            label.quality_verified=False
+            label.quality_verified_at=None
+            label.quality_verified_by=None
+            label.save(update_fields=[
+                "quality_verified","quality_verified_at","quality_verified_by"])
+            Game.objects.filter(pk=game.pk).update(ball_training_approved=False)
+    messages.success(request,"已撤销本帧复核；训练许可确认已撤销。")
     return redirect("ball_labels",pk=pk)

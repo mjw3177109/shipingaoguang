@@ -154,6 +154,13 @@ def compare_dataset(dataset, baseline_path, challenger_path, *,
         "predictions_not_marked_synthetic": not (
             json.loads(Path(baseline_path).read_text()).get("synthetic") is True or
             json.loads(Path(challenger_path).read_text()).get("synthetic") is True),
+        "v07_verified_labels": (
+            manifest.get("label_review_required") is True and
+            all(item.get("quality_verified") is True and
+                item.get("quality_verified_by_id") is not None and
+                item.get("quality_verified_at") is not None
+                for item in rows)
+        ),
         "data_ready":audit["data_coverage_ready"],
         "no_cross_split_identical_image_hashes":duplicate_cross_split==0,
         "enough_precision":c["precision"] is not None and c["precision"]>=min_precision,

@@ -19,7 +19,9 @@ from highlights.vision.data_quality import audit_games
 from highlights.vision.split_v05 import three_way_games, audit_three_way
 
 
-def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=200, *, three_way=False, test_ratio=.20):
+def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=200, *, three_way=False, test_ratio=.20, verified_only=False):
+    if verified_only and not three_way:
+        raise ValueError("Verified-only V0.7 export requires --three-way independent test split")
     if not 0 < val_ratio <= .5 or max_frames < 1 or max_frames > 3000:
         raise ValueError("Invalid split or frame limit")
     get_user_model().objects.get(pk=owner_id)
@@ -31,6 +33,12 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
         raise ValueError("Require at least six approved games for independent train/val/test")
     if len(games)<2:
         raise ValueError("Require at least TWO approved labeled games for game-level train/val split")
+    if verified_only:
+        incomplete=[g.pk for g in games if g.ball_frames.exclude(
+            quality_verified=True, quality_verified_at__isnull=False,
+            quality_verified_by__isnull=False).exists()]
+        if incomplete:
+            raise ValueError(f"Human secondary review incomplete in approved game IDs: {incomplete}")
     if game_ids and set(map(int,game_ids)) != {g.pk for g in games}:
         raise ValueError("Some selected games are not labeled, consented or owned by the selected user")
     root=Path(directory).resolve()
@@ -58,7 +66,8 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
                            "id":game.pk,"split":split,"sample_count":len(labels),
                            "positive":sum(not x.ball_absent for x in labels),
                            "negative":sum(x.ball_absent for x in labels),
-                           "training_rights":game.ball_training_rights})
+                           "training_rights":game.ball_training_rights,
+                           "quality_verified_count":sum(x.quality_verified for x in labels)})
         image_dir=root/"images"/split
         label_dir=root/"labels"/split
         image_dir.mkdir(parents=True,exist_ok=True)
@@ -81,6 +90,9 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
             samples.append({"game_id":game.pk,"split":split,
                             "time_seconds":moment,"image":image,"label":label,
                             "ball_absent":bool(item.ball_absent),
+                            "quality_verified":bool(item.quality_verified),
+                            "quality_verified_by_id":item.quality_verified_by_id,
+                            "quality_verified_at":item.quality_verified_at.isoformat() if item.quality_verified_at else None,
                             "hard_negative_reason":item.hard_negative_reason if item.ball_absent else "",
                             "bbox_xywh_norm":list(rect),
                             "sha256_image":hashlib.sha256(raw).hexdigest()})
@@ -91,6 +103,8 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
     audit = audit_three_way(games_info) if three_way else audit_games(games_info)
     manifest={"schema_version":1,"classes":["basketball"],"owner_id":str(owner_id),
               "quality_audit":audit,
+              "label_review_required":bool(verified_only),
+              "label_review_procedure":"v07_explicit_secondary_frame_review" if verified_only else "legacy_unverified_allowed",
               "method":"three_way_sealed_test_v05" if three_way else "game-disjoint deterministic SHA256 split",
               "test_sealed":bool(three_way),
               "warning":"Annotations must be human verified; no claimed accuracy or automatic score.",
@@ -100,6 +114,9 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
         if row["ball_absent"]:
             reason=row["hard_negative_reason"] or "unspecified"
             hard_negative_totals[reason]=hard_negative_totals.get(reason,0)+1
+    audit["verified_frames"]=sum(bool(x["quality_verified"]) for x in samples)
+    audit["unverified_frames"]=len(samples)-audit["verified_frames"]
+    audit["all_exported_frames_verified"]=audit["unverified_frames"]==0
     audit["hard_negative_by_reason"]=hard_negative_totals
     audit["distinct_specified_hard_negative_categories"]=len(
         [x for x in hard_negative_totals if x!="unspecified"])
@@ -121,10 +138,12 @@ class Command(BaseCommand):
         parser.add_argument("--val-ratio",type=float,default=.25)
         parser.add_argument("--three-way",action="store_true", help="Independent GAME heldout test set, requires at least 6 games")
         parser.add_argument("--test-ratio",type=float,default=.20)
+        parser.add_argument("--verified-only",action="store_true",help="V0.7 strict secondary-reviewed labels only; requires --three-way")
     def handle(self,*args,**opts):
         try:
             data=build_dataset(opts["owner_id"],opts["out"],opts["game_ids"],opts["val_ratio"],
-                               three_way=opts["three_way"],test_ratio=opts["test_ratio"])
+                               three_way=opts["three_way"],test_ratio=opts["test_ratio"],
+                               verified_only=opts["verified_only"])
         except (ValueError,KeyError, get_user_model().DoesNotExist) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(self.style.SUCCESS(

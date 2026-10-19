@@ -2,9 +2,9 @@
 {% block title %}篮球框标注 · {{ game.title }}{% endblock %}
 {% block body %}
 <a href="{% url 'game' game.pk %}" class="back">← 返回比赛</a>
-<div class="heading"><div><div class="eyebrow">V0.3 / 专项训练集建设</div><h1>篮球外接框人工标注</h1>
+<div class="heading"><div><div class="eyebrow">V0.7 / 逐帧质检与快速标注</div><h1>篮球外接框人工标注</h1>
 <p class="muted">{{ game.title }} · {{ game.duration_seconds|floatformat:2 }} 秒</p></div>
-<span class="pill">已标 {{ labels|length }} 帧</span></div>
+<span class="pill">已标 {{ annotation_count }} 帧 · 二次复核 {{ verified_count }} · 待复核 {{ unverified_count }}</span></div>
 <div class="columns wide">
 <section class="panel">
 <h2>一、选择画面并框选篮球</h2>
@@ -37,7 +37,8 @@
 <option value="occlusion">遮挡 / 画面中无法找到球</option>
 <option value="other">其他干扰</option></select></label>
 <p class="hint">原因只用于人工确认的无球负样本；不能把模型没检出篮球的帧直接当无球。</p>
-<button class="primary" type="submit">保存此帧标注</button>
+<div class="actions"><button class="primary" type="submit">保存此帧标注</button>
+<button class="secondary" name="save_next" value="yes" type="submit">保存并跳下一待审帧 →</button></div>
 </form>
 <hr><h2>训练数据授权确认</h2>
 <p class="hint">上传篮球馆录像不等于拥有模型训练许可。请确保视频拍摄、相关人员授权以及数据处理依据允许该用途。</p>
@@ -62,13 +63,28 @@
 ▶ {{ sug.time_seconds|floatformat:2 }} 秒 · {% if sug.reason == 'orange_ambiguous' %}橙色干扰/疑似球{% elif sug.reason == 'motion' %}运动画面{% else %}普通画面{% endif %}
 </button>{% empty %}<p class="muted small">暂无待审建议。点击上方按钮抽帧；框选并保存后相应时间将从建议中移除。</p>{% endfor %}
 </div></section>
-<section class="panel"><h2>已标注的画面</h2><div class="table-scroll">
-<table><thead><tr><th>时间</th><th>标注</th><th>坐标</th><th>删除</th></tr></thead><tbody>
-{% for item in labels %}<tr><td><button type="button" class="ghost" onclick="loadLabeledFrame({{ item.time_seconds }})">{{ item.time_seconds|floatformat:2 }}s</button></td>
+<section class="panel" id="reviewed-frames"><div class="section-bar"><div>
+<h2>V0.7 · 人工二次复核</h2>
+<p class="hint">先点击“看图 / 填入旧框”核对视频与框位置，然后单独点击“已目视复核”。修改标签、撤销复核都会使训练授权确认失效。尚未复核的标注不会进入严格训练集。</p>
+</div><span class="tag">待复核 {{ unverified_count }}</span></div><div class="table-scroll">
+<table><thead><tr><th>时间</th><th>标注</th><th>坐标</th><th>复核状态 / 操作</th><th>删除</th></tr></thead><tbody>
+{% for item in labels %}<tr><td><button type="button" class="ghost" onclick="reviewBallFrame({{ item.time_seconds }}, {{ item.x }}, {{ item.y }}, {{ item.w }}, {{ item.h }}, {% if item.ball_absent %}true{% else %}false{% endif %})">
+看图 / 填入旧框 · {{ item.time_seconds|floatformat:2 }}s</button></td>
 <td>{% if item.ball_absent %}无球（负样本）{% else %}篮球{% endif %}</td><td>{% if not item.ball_absent %}{{ item.x|floatformat:3 }}, {{ item.y|floatformat:3 }}, {{ item.w|floatformat:3 }}, {{ item.h|floatformat:3 }}{% else %}—{% endif %}</td>
-<td><form method="post" action="{% url 'delete_ball_label' game.pk item.pk %}">{% csrf_token %}<button class="danger-button" type="submit">删除</button></form></td></tr>
-{% empty %}<tr><td colspan="4" class="muted">暂无球框标注。从上面的视频选择第一帧。</td></tr>{% endfor %}
-</tbody></table></div></section>
+<td>{% if item.quality_verified %}<span class="tag">已人工复核</span>
+<form method="post" action="{% url 'revoke_ball_verification' game.pk item.pk %}">{% csrf_token %}
+<button class="ghost" type="submit">撤销复核</button></form>
+{% else %}<span class="muted">未复核</span>
+<form method="post" action="{% url 'verify_ball_label' game.pk item.pk %}">{% csrf_token %}
+<button class="secondary" type="submit" name="verified" value="yes">已目视复核此帧</button></form>
+{% endif %}</td><td><form method="post" action="{% url 'delete_ball_label' game.pk item.pk %}">{% csrf_token %}<button class="danger-button" type="submit">删除</button></form></td></tr>
+{% empty %}<tr><td colspan="5" class="muted">暂无球框标注。从上面的视频选择第一帧。</td></tr>{% endfor %}
+</tbody></table></div>
+<div class="actions" style="margin-top:10px">
+{% if page_obj.has_previous %}<a class="inline-link" href="?page={{ page_obj.previous_page_number }}#reviewed-frames">← 上一页</a>{% endif %}
+<span class="muted">第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页 · 每页 50 帧</span>
+{% if page_obj.has_next %}<a class="inline-link" href="?page={{ page_obj.next_page_number }}#reviewed-frames">下一页 →</a>{% endif %}
+</div></section>
 <link rel="stylesheet" href="{% static 'ball-labels.css' %}">
 <script>window.ballFrameUrl="{% url 'ball_frame_jpg' game.pk %}";</script>
 <script src="{% static 'ball-labels.js' %}" defer></script>
