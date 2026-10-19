@@ -36,6 +36,7 @@ class Game(models.Model):
     duration_seconds = models.FloatField(default=0)
     hoops = models.JSONField(default=list, blank=True)  # V0.2 calibrated hoop regions
     annotations_complete = models.BooleanField(default=False)
+    analysis_engine = models.CharField(max_length=16, default="audio", choices=[("audio", "声音峰值"), ("cpu", "CPU 球状物体候选")])
     state = models.CharField(max_length=16, choices=State.choices, default=State.UPLOADED)
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

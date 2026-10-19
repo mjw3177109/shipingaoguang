@@ -1,0 +1,3 @@
+# Free / no cloud GPU / no model-weight download.
+opencv-python-headless>=4.8,<5
+numpy>=1.26,<3

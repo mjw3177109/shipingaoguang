@@ -1,0 +1,57 @@
+name: Real Basketball CPU Smoke (CC0)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/cpu-real-video-smoke]
+    paths:
+      - "highlights/**"
+      - "scripts/real_video_smoke.py"
+      - ".github/workflows/real-video-cpu.yml"
+      - "requirements-cpu.txt"
+jobs:
+  real-video-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "smoke-only-not-for-service"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU dependencies and FFmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Download ONE verifiably CC0 basketball match video
+        run: |
+          mkdir -p /tmp/basketcut-real
+          curl --fail --location --retry 3 --max-time 120 \
+            --user-agent "BasketCut-Research-Smoke/1.0 (github-actions)" \
+            "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" \
+            --output /tmp/basketcut-real/Basketpass.webm
+          test "$(stat -c%s /tmp/basketcut-real/Basketpass.webm)" -gt 100000
+          ffprobe -v error -show_entries format=duration,size -of json /tmp/basketcut-real/Basketpass.webm
+      - name: Prepare database
+        run: python manage.py migrate --noinput
+      - name: Complete real footage Django+CPU+review+render pipeline
+        run: |
+          python scripts/real_video_smoke.py \
+            --video /tmp/basketcut-real/Basketpass.webm \
+            --out /tmp/basketcut-real/results \
+            --source-url "https://commons.wikimedia.org/wiki/File:Basketpass.webm" \
+            --license "CC0 1.0 (Benoît Prieur / Wikimedia Commons)"
+          ffprobe -v error -show_entries format=duration,bit_rate -of json /tmp/basketcut-real/results/highlight.mp4
+      - name: Upload actual result and quality caveats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-real-video-cpu-result
+          path: |
+            /tmp/basketcut-real/results/report.json
+            /tmp/basketcut-real/results/highlight.mp4
+            /tmp/basketcut-real/results/preview.jpg
+          retention-days: 7
+          if-no-files-found: warn

@@ -4,6 +4,8 @@ from django.db import close_old_connections
 
 from highlights.models import Export, Game
 from highlights.services import analyze_game, render_export
+from highlights.vision.cpu import scan_cpu_video
+from highlights.models import Candidate
 
 
 class Command(BaseCommand):
@@ -33,8 +35,26 @@ class Command(BaseCommand):
             if not Game.objects.filter(pk=game.pk, state="queued").update(state="analyzing"):
                 return True
             try:
-                count = analyze_game(game)
-                self.stdout.write(f"Game {game.pk}: {count} audio proposals")
+                if game.analysis_engine == "cpu":
+                    result = scan_cpu_video(game.video.path, hoops=game.hoops)
+                    Candidate.objects.filter(game=game, source__in=(
+                        "cpu_ball_activity", "cpu_hoop_activity"), review="pending").delete()
+                    Candidate.objects.bulk_create([
+                        Candidate(game=game, start_seconds=c["start_seconds"],
+                                  end_seconds=c["end_seconds"], source=c["source"],
+                                  energy_score=c["score"], note=c["note"])
+                        for c in result["candidates"]
+                    ])
+                    game.duration_seconds = result["video_duration_seconds"]
+                    game.state = "ready"
+                    game.error = ""
+                    game.save(update_fields=["duration_seconds", "state", "error"])
+                    count = len(result["candidates"])
+                    self.stdout.write(f"Game {game.pk}: {count} CPU visual candidates; "
+                                      f"processed_frames={result['analysis']['frames_processed']}")
+                else:
+                    count = analyze_game(game)
+                    self.stdout.write(f"Game {game.pk}: {count} audio proposals")
             except Exception as exc:
                 Game.objects.filter(pk=game.pk).update(state="failed", error=str(exc)[:1200])
                 self.stderr.write(f"Game {game.pk} failed: {exc}")
