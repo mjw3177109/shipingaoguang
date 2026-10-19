@@ -30,7 +30,8 @@ def create_synthetic_jpeg_dataset(root):
         for i in range(30):
             absent = i >= 20
             img = np.zeros((64, 96, 3), dtype=np.uint8)
-            img[:, :] = [game % 251, (game // 2) % 251, (game * 3 + i) % 251]
+            code = game - 1000
+            img[:, :] = [(code * 29) % 256, (code * 41) % 256, (code * 53 + i * 17) % 256]
             if not absent:
                 cv2.circle(img, (48, 32), 5, (15, 110, 240), -1)
             good, encoded = cv2.imencode(".jpg", img)

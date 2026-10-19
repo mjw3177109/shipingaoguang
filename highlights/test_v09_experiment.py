@@ -123,7 +123,7 @@ class CpuExperimentGateTests(SimpleTestCase):
         m.pop("WARNING", None)
         self._replace_manifest(m)
         audit = inspect_dataset(self.root)
-        self.assertTrue(audit["allow_cpu_research_experiment"])
+        self.assertTrue(audit["allow_cpu_research_experiment"], audit)
         result = run_experiment(self.root, Path(self.temp.name) / "dry")
         self.assertEqual(result["stage"], "PREFLIGHT_ONLY")
         self.assertFalse(result["production_release"])
