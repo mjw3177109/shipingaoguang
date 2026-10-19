@@ -91,3 +91,20 @@ V0.2 引入每场比赛篮筐框选、Torchvision sports ball GPU 检测、篮�
 详细说明：[`docs/V0.2_BENCHMARK_GUIDE.md`](docs/V0.2_BENCHMARK_GUIDE.md)。
 
 注意：`benchmarks/example_*.json` 只有模拟数据，CI 通过不证明篮球事件检测的真实效果。目前没有自动连接 Kaggle 账号或支付算力，真实 GPU 模型和球馆视频仍需独立验证。
+
+## V0.2-CPU 免费视觉候选（不需要 Kaggle、显卡或模型权重）
+
+在比赛详情页，点击 **CPU 视觉候选（免费）** 即可让现有后台 worker 使用 OpenCV 在普通云 CPU 上识别橙色近圆物体的运动。提前框选篮筐，会优先推荐篮筐附近活动；没有篮筐框选时只给出全场球状物体活动候选。
+
+⚠ **不是训练好的篮球动作识别模型，也不能判断投篮命中、助攻或球员身份。** 橙色球衣、光照变化可能误报；不是橙色的篮球或远距离小球可能漏检。**候选为零时不能自动伪造成功**，可手动打点完成视频生产。保留 V0.1 声音候选和人工审核。
+
+独立 CPU 命令：
+
+```bash
+pip install -r requirements-cpu.txt
+python -m highlights.vision.cpu --video video.mp4 --out candidates.json
+# 已从界面下载篮筐标定 JSON：
+python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --out candidates.json
+```
+
+真实篮球视频 GitHub Actions 测试见 `docs/REAL_VIDEO_SMOKE.md`。固定机位的完整比赛素材与短片特写的表现可能不同，不可把测试片段的结果当作篮球馆的实际识别率。

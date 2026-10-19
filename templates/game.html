@@ -4,7 +4,8 @@
 <div class="heading"><div><div class="eyebrow">{{ game.venue.name }} / 比赛管理</div><h1>{{ game.title }}</h1>
 <p class="muted">时长 {{ game.duration_seconds|floatformat:1 }} 秒 · 状态 {{ game.get_state_display }}</p></div>
 <form method="post" action="{% url 'queue_analysis' game.pk %}">{% csrf_token %}
-<button class="primary" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>分析声音峰值候选</button></form></div>
+<div class="actions"><button class="primary" type="submit" name="engine" value="cpu" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>CPU 视觉候选（免费）</button>
+<button class="secondary" type="submit" name="engine" value="audio" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>声音峰值候选</button></div></form></div>
 {% if game.error %}<div class="alert danger">后台任务错误：{{ game.error }}</div>{% endif %}
 <div class="columns wide"><section class="panel">
 <h2>原始录像预览</h2>
@@ -65,7 +66,7 @@
 <p class="muted small">音量峰值 ≠ 投篮命中。老师/运营人员需要确认镜头并分配球员。</p></div></div>
 {% for clip in candidates %}
 <div class="clip"><div class="clip-mark"><strong>#{{ forloop.counter }}</strong><span class="tag">{{ clip.get_review_display }}</span>
-<span class="muted small">{% if clip.source == 'audio_peak' %}声音候选 · 强度 {{ clip.energy_score|floatformat:3 }}{% elif clip.source == 'manual' %}手动标记{% else %}视觉实验候选 · 指标 {{ clip.energy_score|floatformat:3 }}{% endif %}</span>
+<span class="muted small">{% if clip.source == 'audio_peak' %}声音候选 · 强度 {{ clip.energy_score|floatformat:3 }}{% elif clip.source == 'manual' %}手动标记{% elif clip.source == 'cpu_ball_activity' or clip.source == 'cpu_hoop_activity' %}CPU 颜色运动候选 · 启发式分数 {{ clip.energy_score|floatformat:3 }}{% else %}视觉实验候选 · 指标 {{ clip.energy_score|floatformat:3 }}{% endif %}</span>
 <button class="ghost jump" type="button" onclick="seekVideo({{ clip.start_seconds }})">▶ 跳转 {{ clip.start_seconds|floatformat:1 }} 秒</button></div>
 <form class="clip-form" method="post" action="{% url 'review_candidate' game.pk clip.pk %}">{% csrf_token %}
 <div class="clip-fields"><label>开始<input type="number" step=".1" name="start" value="{{ clip.start_seconds }}" required></label>

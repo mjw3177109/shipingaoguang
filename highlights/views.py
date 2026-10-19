@@ -101,13 +101,18 @@ def game_detail(request, pk):
 @require_POST
 def queue_analysis(request, pk):
     game = _game(request, pk)
+    mode = request.POST.get("engine", "audio")
+    if mode not in ("audio", "cpu"):
+        messages.error(request, "未知分析引擎。")
+        return redirect("game", pk=pk)
     if game.state not in ("uploaded", "ready", "failed"):
         messages.error(request, "已有分析任务运行或排队中。")
     else:
         game.state = "queued"
+        game.analysis_engine = mode
         game.error = ""
-        game.save(update_fields=["state", "error"])
-        messages.success(request, "候选片段已加入后台队列。")
+        game.save(update_fields=["state", "analysis_engine", "error"])
+        messages.success(request, ("CPU视觉" if mode == "cpu" else "声音") + "候选任务已加入后台队列。")
     return redirect("game", pk=pk)
 
 
