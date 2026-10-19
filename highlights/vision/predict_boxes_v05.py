@@ -4,6 +4,7 @@ Predict into the shared normalized box JSON format consumed by compare_v05.
 No video is exported here. Run both models on the *same* heldout images.
 """
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -49,6 +50,14 @@ def predict(dataset, destination, *, model_kind, checkpoint=None, allow_research
         if set(map(str,ckpt.get("training_game_ids",[]))) & {
                 str(r["game_id"]) for r in rows}:
             raise ValueError("TEST GAME LEAKAGE: checkpoint training game appears in sealed test")
+        manifest_hash=hashlib.sha256((root/"manifest.json").read_bytes()).hexdigest()
+        if ckpt.get("dataset_manifest_sha256") != manifest_hash:
+            raise ValueError("Checkpoint dataset manifest SHA256 differs: training provenance mismatch")
+        actual_test_ids={str(r["game_id"]) for r in rows}
+        if set(map(str,ckpt.get("sealed_test_game_ids",[]))) != actual_test_ids:
+            raise ValueError("Checkpoint sealed test game IDs differ from this dataset")
+        if set(map(str,ckpt.get("validation_game_ids",[]))) & actual_test_ids:
+            raise ValueError("TEST GAME LEAKAGE: checkpoint validation game in sealed test")
         model=fasterrcnn_mobilenet_v3_large_320_fpn(weights=None,weights_backbone=None)
         model.roi_heads.box_predictor=FastRCNNPredictor(
             model.roi_heads.box_predictor.cls_score.in_features,2)

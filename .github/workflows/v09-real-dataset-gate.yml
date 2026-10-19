@@ -1,0 +1,73 @@
+name: V0.9 Real Basketball Data Gate + Synthetic Fraud Resistance
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/v09-cpu-training-experiment]
+    paths:
+      - "highlights/vision/preflight_v09.py"
+      - "highlights/vision/experiment_v09.py"
+      - "scripts/v09_synthetic_jpeg_fixture.py"
+      - ".github/workflows/v09-real-dataset-gate.yml"
+jobs:
+  check-real-and-synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FFmpeg and OpenCV CPU only
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements-cpu.txt
+      - name: Download two openly licensed real basketball clips
+        run: |
+          mkdir -p /tmp/v09-videos
+          curl --fail --location --retry 3 --max-time 110 "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" -o /tmp/v09-videos/passing.webm
+          curl --fail --location --retry 3 --max-time 110 "https://upload.wikimedia.org/wikipedia/commons/f/f1/VCB_FCB%284%29.webm" -o /tmp/v09-videos/free_throw.webm
+      - name: Recreate real two-game four-bbox historic dataset
+        run: |
+          python -m scripts.real_ball_box_pilot \
+            --annotations benchmarks/real_ball_boxes_pilot.json \
+            --videos /tmp/v09-videos --out /tmp/v09-real-4
+      - name: Run V0.9 research preflight on actual real JPEG frames
+        run: |
+          python -m highlights.vision.experiment_v09 \
+            --dataset /tmp/v09-real-4 --out /tmp/v09-real-report
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('/tmp/v09-real-report/preflight.json').read_text())
+          s=json.loads(Path('/tmp/v09-real-report/experiment.json').read_text())
+          assert p['games']==2 and p['positive_frames']==4 and p['explicit_negative_frames']==0
+          assert p['allow_cpu_research_experiment'] is False
+          assert s['stage']=='BLOCKED' and s['production_release'] is False
+          assert not list(Path('/tmp/v09-real-report').glob('*.pt'))
+          print('REAL 4-FRAME DATA BLOCKED CORRECTLY; no false claims about new real model scores.')
+          PY
+      - name: Test even structurally complete fake JPEGs cannot train
+        run: |
+          python -m scripts.v09_synthetic_jpeg_fixture --out /tmp/v09-synthetic
+          python -m highlights.vision.experiment_v09 \
+            --dataset /tmp/v09-synthetic --out /tmp/v09-fake-report
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('/tmp/v09-fake-report/preflight.json').read_text())
+          assert p['frames']==240
+          assert p['checks']['independent_split_basic_coverage'] is True
+          assert p['checks']['explicitly_not_synthetic'] is False
+          assert p['allow_cpu_research_experiment'] is False
+          print('SYNTHETIC samples blocked, irrespective of their perfect counts and verification flags.')
+          PY
+      - name: Preserve ONLY JSON audits, not video or model checkpoints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v09-real-and-synthetic-preflight-reports
+          path: |
+            /tmp/v09-real-report/*.json
+            /tmp/v09-fake-report/*.json
+          retention-days: 7
+          if-no-files-found: warn
