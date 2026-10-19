@@ -34,3 +34,27 @@ python scripts/real_video_smoke.py --video Basketpass.webm --out real-video-resu
 ```
 
 For meaningful shot recall, annotate independent longer match clips from authorized data and evaluate with `highlights.vision.evaluate`. It would be incorrect to calculate shot detection accuracy from a 5.7-second passing example alone.
+
+## 2026-10-19 实际运行结果（不是合成数据）
+
+证据：[GitHub Actions Run #39215098572](https://github.com/mjw3177109/shipingaoguang/actions/runs/39215098572)。
+报告与真实 MP4 产物：[Artifact #12169012111](https://github.com/mjw3177109/shipingaoguang/actions/runs/39215098572#artifacts)（GitHub 保留 7 天）。
+
+| 指标 | 实测值 |
+|---|---:|
+| 原片大小 | 1,663,690 字节 |
+| 原片时长 | 5.683 秒 |
+| CPU 自动候选数量 | 1 段 |
+| 候选时间窗口 | 1.20–5.68 秒 |
+| 候选启发式分数 | 0.8276（非进球概率） |
+| 是否需要手动补片 | 否 |
+| 输出时长 | 4.467 秒 |
+| 输出大小 | 1,465,093 字节 |
+| 端到端脚本用时 | 2.77 秒 |
+| 导出结果 | FFmpeg MP4，已成功 |
+| 原片 SHA256 | `a5d909156fef2abcf08428aaea2f15a234d9d7ac9aadd81f57a01e2b7dc2b1eb` |
+| 输出 SHA256 | `a6a7b3b5be5711cc10d1590cc7daa2fccd60125592c99ee3281aa514bf71fe63` |
+
+**审核说明**：上述“审核通过”由自动集成测试的模拟审核操作完成，未经过真人逐帧确认。真实比赛片段是篮球**传球**，未提供逐次投篮尝试的独立真值。故无法计算真实 Recall/Precision，更不能宣传其为“AI 自动识别进球成功”。
+
+第二项检测依然需要**投篮真实比赛录像**（最好是固定机位 30–60 秒、有明确出手的片段），在 `benchmarks` 工作流里做人工标注和检测效果评估。
