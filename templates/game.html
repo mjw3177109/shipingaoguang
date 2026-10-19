@@ -1,0 +1,51 @@
+{% extends 'base.html' %}{% block title %}{{ game.title }} · BasketCut{% endblock %}
+{% block body %}<a href="{% url 'dashboard' %}" class="back">← 返回比赛列表</a>
+<div class="heading"><div><div class="eyebrow">{{ game.venue.name }} / 比赛管理</div><h1>{{ game.title }}</h1>
+<p class="muted">时长 {{ game.duration_seconds|floatformat:1 }} 秒 · 状态 {{ game.get_state_display }}</p></div>
+<form method="post" action="{% url 'queue_analysis' game.pk %}">{% csrf_token %}
+<button class="primary" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>分析声音峰值候选</button></form></div>
+{% if game.error %}<div class="alert danger">后台任务错误：{{ game.error }}</div>{% endif %}
+<div class="columns wide"><section class="panel">
+<h2>原始录像预览</h2><video id="player" controls preload="metadata" playsinline src="{% url 'source_video' game.pk %}"></video>
+<p class="hint">可点击候选中的“跳转”定位到开始时间。原视频与下载文件均需登录权限。</p>
+</section><section class="panel"><h2>手动添加精彩镜头</h2>
+<form method="post" action="{% url 'add_candidate' game.pk %}" class="stack">{% csrf_token %}
+<div class="two"><label>开始（秒）<input type="number" step=".1" min="0" name="start" placeholder="60" required></label>
+<label>结束（秒）<input type="number" step=".1" min="0" name="end" placeholder="72" required></label></div>
+<label>球员标识（可空）<input name="player_label" maxlength="100" placeholder="例如：7号 / 王同学"></label>
+<button class="secondary">添加候选</button></form>
+<hr><h2>生成高光视频</h2><p class="muted small">只使用标记为“通过”的镜头；不填球员则生成全场混剪。</p>
+<form method="post" action="{% url 'queue_export' game.pk %}" class="stack">{% csrf_token %}
+<label>仅输出某球员（可空）<input name="player_label" maxlength="100" placeholder="与下方审核里的球员标识一致"></label>
+<button class="primary">加入渲染队列</button></form>
+<p class="hint">当前导出为 720P/30fps 横屏无声视频；特效、BGM、竖屏在后续版本实现。</p>
+<hr><h2>导入 Kaggle / GPU 视觉候选</h2><p class="muted small">导入 JSON 不代表识别准确，所有导入的片段默认待审。</p>
+<form action="{% url 'import_proposals' game.pk %}" method="post" enctype="multipart/form-data" class="stack">{% csrf_token %}
+<label>候选 JSON<input type="file" name="proposals" accept=".json,application/json" required></label>
+<button class="secondary" type="submit">导入候选片段</button></form></section></div>
+<section class="panel"><div class="section-bar"><div><h2>候选片段（{{ candidates|length }}）</h2>
+<p class="muted small">音量峰值 ≠ 投篮命中。老师/运营人员需要确认镜头并分配球员。</p></div></div>
+{% for clip in candidates %}
+<div class="clip"><div class="clip-mark"><strong>#{{ forloop.counter }}</strong><span class="tag">{{ clip.get_review_display }}</span>
+<span class="muted small">{% if clip.source == 'audio_peak' %}声音候选 · 强度 {{ clip.energy_score|floatformat:3 }}{% elif clip.source == 'manual' %}手动标记{% else %}视觉实验候选 · 指标 {{ clip.energy_score|floatformat:3 }}{% endif %}</span>
+<button class="ghost jump" type="button" onclick="seekVideo({{ clip.start_seconds }})">▶ 跳转 {{ clip.start_seconds|floatformat:1 }} 秒</button></div>
+<form class="clip-form" method="post" action="{% url 'review_candidate' game.pk clip.pk %}">{% csrf_token %}
+<div class="clip-fields"><label>开始<input type="number" step=".1" name="start" value="{{ clip.start_seconds }}" required></label>
+<label>结束<input type="number" step=".1" name="end" value="{{ clip.end_seconds }}" required></label>
+<label>球员<input name="player_label" maxlength="100" value="{{ clip.player_label }}" placeholder="7号"></label>
+<label>备注<input name="note" maxlength="240" value="{{ clip.note }}" placeholder="上篮 / 进球 / 误判"></label></div>
+<div class="actions"><button class="approved" name="review" value="approved">✓ 审核通过</button>
+<button class="rejected" name="review" value="rejected">× 剔除</button>
+<button class="secondary" name="review" value="pending">存为待审</button></div></form></div>
+{% empty %}<div class="empty">暂无候选，点击上方分析或手动添加；安静的进球可能不会被音量算法发现。</div>{% endfor %}
+</section>
+<section class="panel"><div class="section-bar"><h2>导出记录</h2><button class="ghost" onclick="location.reload()" type="button">刷新任务状态</button></div>
+<div class="table-scroll"><table><thead><tr><th>范围</th><th>状态</th><th>创建时间</th><th>结果</th></tr></thead><tbody>
+{% for item in exports %}<tr><td>{{ item.player_label|default:"全场集锦" }}</td><td>{{ item.get_state_display }}</td>
+<td>{{ item.created_at|date:"m-d H:i" }}</td><td>{% if item.state == 'done' %}<a class="inline-link" href="{% url 'export_video' game.pk item.pk %}">下载 MP4 ↓</a>
+{% elif item.state == 'failed' %}<span class="error-text">{{ item.error }}</span>{% else %}等待 Worker{% endif %}</td></tr>
+{% empty %}<tr><td colspan="4" class="muted">暂无导出任务。</td></tr>{% endfor %}
+</tbody></table></div></section>
+<section class="delete-area"><form method="post" action="{% url 'delete_game' game.pk %}" onsubmit="return confirm('确定永久删除这场比赛及其本地录像、集锦吗？不可恢复。')">{% csrf_token %}<button class="danger-button" type="submit">删除比赛及录像</button></form></section>
+<script>function seekVideo(seconds){let video=document.getElementById('player');video.currentTime=Number(seconds);video.scrollIntoView({behavior:'smooth',block:'center'});video.play().catch(()=>{});}</script>
+{% endblock %}
