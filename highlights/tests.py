@@ -80,6 +80,14 @@ class VideoFlowTests(TestCase):
         self.assertEqual(self.game.candidates.count(), 1)
         self.assertEqual(self.game.candidates.first().review, "pending")
 
+    def test_game_detail_renders_roi_controls(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("game", args=[self.game.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "roi-layer")
+        self.assertContains(response, "vision-config")
+        self.assertContains(response, "hoop-roi.js")
+
     def test_hoop_settings_tenant_and_config(self):
         import json
         self.client.force_login(self.other)

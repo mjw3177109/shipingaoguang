@@ -1,5 +1,5 @@
-{% load static %}
-{% extends 'base.html' %}{% block title %}{{ game.title }} · BasketCut{% endblock %}
+{% extends 'base.html' %}
+{% load static %}{% block title %}{{ game.title }} · BasketCut{% endblock %}
 {% block body %}<a href="{% url 'dashboard' %}" class="back">← 返回比赛列表</a>
 <div class="heading"><div><div class="eyebrow">{{ game.venue.name }} / 比赛管理</div><h1>{{ game.title }}</h1>
 <p class="muted">时长 {{ game.duration_seconds|floatformat:1 }} 秒 · 状态 {{ game.get_state_display }}</p></div>
