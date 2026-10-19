@@ -1,0 +1,42 @@
+name: Licensed Basketball Real Frame Sampling
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/basketball-specialist-data-v03]
+    paths:
+      - ".github/workflows/sample-licensed-basketball-frames.yml"
+jobs:
+  samples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Download and extract actual frames from CC licensed footage
+        run: |
+          mkdir -p /tmp/frames/{passing,free_throw}
+          curl --fail --location --retry 3 --max-time 110 \
+            "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" -o /tmp/passing.webm
+          curl --fail --location --retry 3 --max-time 110 \
+            "https://upload.wikimedia.org/wikipedia/commons/f/f1/VCB_FCB%284%29.webm" -o /tmp/free_throw.webm
+          for t in 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0; do
+            key=$(printf '%03d' $(echo "$t*10" | bc | awk '{printf "%.0f", $1}'))
+            ffmpeg -nostdin -hide_banner -loglevel error -y -ss "$t" -i /tmp/passing.webm \
+              -frames:v 1 -q:v 2 /tmp/frames/passing/t${key}.jpg
+            ffmpeg -nostdin -hide_banner -loglevel error -y -ss "$t" -i /tmp/free_throw.webm \
+              -frames:v 1 -q:v 2 /tmp/frames/free_throw/t${key}.jpg
+          done
+          printf '%s\n' "Basketpass.webm - Benoît Prieur - CC0 1.0" \
+            "https://commons.wikimedia.org/wiki/File:Basketpass.webm" \
+            "VCB FCB(4).webm - Coentor - CC BY-SA 3.0" \
+            "https://commons.wikimedia.org/wiki/File:VCB_FCB(4).webm" \
+            "This is a private model-research annotation preview, not a benchmark." \
+            > /tmp/frames/LICENSE-SOURCES.txt
+          find /tmp/frames -name '*.jpg' | wc -l
+      - name: Temporary research annotation frame artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: licensed-real-basketball-frame-annotation-samples
+          path: /tmp/frames
+          retention-days: 3
