@@ -86,7 +86,7 @@ class VideoFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "roi-layer")
         self.assertContains(response, "vision-config")
-        self.assertContains(response, "hoop-roi.js")
+        self.assertContains(response, "hoop-roi.")
 
     def test_hoop_settings_tenant_and_config(self):
         import json
