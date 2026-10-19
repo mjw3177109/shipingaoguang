@@ -16,7 +16,7 @@ from .cpu import _activity_candidates
 
 
 def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
-                        min_confidence=.16, architecture="mobile320"):
+                        min_confidence=.16, architecture="mobile320", tiles=1):
     import cv2
     import torch
     from torchvision.models.detection import (
@@ -30,6 +30,8 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
     if not (.35 <= interval <= 5 and 1 <= max_frames <= 1800 and
             .05 <= min_confidence <= .95):
         raise ValueError("Bad inference parameters")
+    if tiles not in (1, 4):
+        raise ValueError("tiles must be 1 or 4")
     if architecture not in ("mobile320", "resnet50"):
         raise ValueError("architecture must be mobile320 or resnet50")
     torch.set_num_threads(min(4, max(1, os.cpu_count() or 1)))
@@ -71,20 +73,39 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
                 frame = cv2.resize(frame, (max(1,round(width*scale)),
                                            max(1,round(height*scale))))
                 height, width = frame.shape[:2]
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            tensor = torch.from_numpy(rgb.copy()).permute(2,0,1).contiguous()
-            with torch.inference_mode():
-                prediction = model([preprocess(tensor)])[0]
-            for box, label, conf in zip(
-                    prediction["boxes"], prediction["labels"], prediction["scores"]):
-                if int(label.item()) != ball_class_id or conf.item() < min_confidence:
-                    continue
-                x1,y1,x2,y2 = box.tolist()
-                center_x, center_y = (x1+x2)/(2*width), (y1+y2)/(2*height)
-                if not (0 <= center_x <= 1 and 0 <= center_y <= 1):
-                    continue
-                observations.append(BallObservation(second, center_x,
-                                                    center_y, conf.item()))
+            crops = [(0,0,width,height)]
+            if tiles == 4:
+                # Overlapping quadrants reduce the severe scale loss of distant balls.
+                # Deduplicate same-frame centers after inverse coordinate mapping.
+                crops = []
+                xsize = max(1, round(width * .6))
+                ysize = max(1, round(height * .6))
+                for ox in (0, max(0,width-xsize)):
+                    for oy in (0, max(0,height-ysize)):
+                        crops.append((ox,oy,min(width,ox+xsize),min(height,oy+ysize)))
+            candidates_for_frame = []
+            for ox,oy,rx,ry in crops:
+                crop = frame[oy:ry,ox:rx]
+                rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+                tensor = torch.from_numpy(rgb.copy()).permute(2,0,1).contiguous()
+                with torch.inference_mode():
+                    prediction = model([preprocess(tensor)])[0]
+                for box, label, conf in zip(
+                        prediction["boxes"], prediction["labels"], prediction["scores"]):
+                    if int(label.item()) != ball_class_id or conf.item() < min_confidence:
+                        continue
+                    x1,y1,x2,y2 = box.tolist()
+                    cx = (ox+(x1+x2)/2)/width
+                    cy = (oy+(y1+y2)/2)/height
+                    if not (0 <= cx <= 1 and 0 <= cy <= 1):
+                        continue
+                    candidates_for_frame.append((cx,cy,float(conf.item())))
+            candidates_for_frame.sort(key=lambda c:-c[2])
+            picked = []
+            for x,y,q in candidates_for_frame:
+                if all(math.hypot(x-px,y-py) > .025 for px,py,_ in picked):
+                    picked.append((x,y,q))
+                    observations.append(BallObservation(second,x,y,q))
         if decoded == 0:
             raise ValueError("No decoded video frames")
         scoped = min(duration, last_second+interval)
@@ -99,6 +120,7 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
             "analysis": {
                 "kind": "pretrained_coco_sports_ball_cpu",
                 "model": f"torchvision_fasterrcnn_{architecture}",
+                "tiles_per_frame": tiles,
                 "device": "cpu",
                 "sample_interval_seconds": interval,
                 "frames_processed": decoded,
@@ -125,10 +147,11 @@ def main(argv=None):
     p.add_argument("--max-frames", type=int, default=24)
     p.add_argument("--threshold", type=float, default=.16)
     p.add_argument("--arch", choices=("mobile320","resnet50"), default="mobile320")
+    p.add_argument("--tiles", choices=(1,4), type=int, default=1)
     args = p.parse_args(argv)
     result = scan_pretrained_cpu(args.video, interval=args.interval,
                max_frames=args.max_frames, min_confidence=args.threshold,
-               architecture=args.arch)
+               architecture=args.arch, tiles=args.tiles)
     dst = Path(args.out)
     dst.parent.mkdir(parents=True,exist_ok=True)
     dst.write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding="utf-8")

@@ -23,3 +23,12 @@ python -m highlights.vision.cpu_pretrained --video match.webm --out model_candid
 仅比较「是否从视频画面检出运动球」，不是比较「是否识别到罚球/进球」。公开视频的说明标签不是人工逐帧标注，暂无可信的投篮检索 Precision / Recall。
 
 如果小球漏检较多，应首先增加篮筐 ROI 裁剪和篮球专项微调训练，而不是简单提高阈值。
+
+## 首次真实 CPU 预训练模型对比 (2026-10-19)
+
+[GitHub Actions #39217175402](https://github.com/mjw3177109/shipingaoguang/actions/runs/39217175402) 已真实运行，CPU 未发生程序异常。
+
+- 传球片段：MobileNetV3-320 检测到 **0 个** COCO sports-ball 框，0 条候选，分析 2.01 秒；
+- 罚球片段：MobileNetV3-320 检测到 **0 个** COCO sports-ball 框，0 条候选，分析 1.45 秒。
+
+这表明在该远景场景下，通用轻量模型的篮球检出效果可能很弱；阈值 .16 时得不到有效检测。后续增加 4 块重叠 ROI 裁剪和 ResNet50 作为**实验**，如果依旧为零，则应停止简单模型堆叠，转向篮球专项权重/标注数据。数字来自真实视频，**不是投篮识别准确率**。

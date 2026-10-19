@@ -41,10 +41,19 @@ jobs:
           python -m highlights.vision.cpu_pretrained \
             --video /tmp/basketcut-learned/free_throw.webm \
             --out /tmp/basketcut-learned/free_throw_model.json --interval 0.8 --max-frames 12
+          # Additional experiments: enlarge distant balls with 4 overlapping tiles.
+          python -m highlights.vision.cpu_pretrained \
+            --video /tmp/basketcut-learned/free_throw.webm \
+            --out /tmp/basketcut-learned/free_throw_mobile_tiled.json \
+            --interval 0.8 --max-frames 12 --tiles 4 --threshold 0.08
+          python -m highlights.vision.cpu_pretrained \
+            --video /tmp/basketcut-learned/free_throw.webm \
+            --out /tmp/basketcut-learned/free_throw_resnet50.json \
+            --interval 1.0 --max-frames 8 --arch resnet50 --threshold 0.1
           python - <<'PY'
           import json
           from pathlib import Path
-          for name in ('passing','free_throw'):
+          for name in ('passing','free_throw','free_throw_mobile_tiled','free_throw_resnet50'):
               data=json.loads(Path(f"/tmp/basketcut-learned/{name}_model.json").read_text())
               print(f"{name}: ball detections={data['analysis']['ball_detections']}, "
                     f"candidate clips={len(data['candidates'])}, "
@@ -55,6 +64,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: free-cpu-pretrained-results
-          path: /tmp/basketcut-learned/*_model.json
+          path: |
+            /tmp/basketcut-learned/*_model.json
+            /tmp/basketcut-learned/free_throw_mobile_tiled.json
+            /tmp/basketcut-learned/free_throw_resnet50.json
           retention-days: 7
           if-no-files-found: warn
