@@ -15,7 +15,9 @@ docker compose exec web python manage.py createsuperuser
 
 打开 http://localhost:8000/accounts/login/ 登录。先新建篮球馆，再上传 MP4/MOV/MKV/WEBM 视频，点击“分析候选”，等待 worker 后台处理；在比赛页审核片段、填写球员标识（如 7号/张三），最后排队导出横屏 MP4。输出文件仅登录并具备该球馆权限的账号能下载。
 
-使用 WhiteNoise 提供静态文件服务；生产环境请使用 HTTPS、关闭 DEBUG 并使用对象存储/专业反向代理。\n\n查看 worker：`docker compose logs -f worker`。数据库迁移由 web 容器启动时执行。**不要公开暴露此示例服务**：上线前需 HTTPS、可靠的对象存储、CSRF 及代理安全配置、账号管理、监控备份，并请合规审查录像授权。
+使用 WhiteNoise 提供静态文件服务；生产环境请使用 HTTPS、关闭 DEBUG 并使用对象存储/专业反向代理。
+
+查看 worker：`docker compose logs -f worker`。数据库迁移由 web 容器启动时执行。**不要公开暴露此示例服务**：上线前需 HTTPS、可靠的对象存储、CSRF 及代理安全配置、账号管理、监控备份，并请合规审查录像授权。
 
 ## 无 Docker 的本地开发
 
