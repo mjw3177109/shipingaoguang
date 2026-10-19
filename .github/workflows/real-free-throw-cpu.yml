@@ -1,0 +1,79 @@
+name: Real Free Throw CPU Comparison
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/cpu-free-throw-validation]
+    paths:
+      - "scripts/shot_clip_diagnostics.py"
+      - ".github/workflows/real-free-throw-cpu.yml"
+      - "highlights/vision/cpu.py"
+jobs:
+  compare-licensed-clips:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "research-ci-only"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU-only baseline
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Download public CC0 PASS clip and CC BY-SA FREE THROW clip
+        run: |
+          mkdir -p /tmp/basketcut-compare
+          curl --fail --location --retry 3 --max-time 110 \
+            --user-agent "BasketCut-Research-Smoke/1.0" \
+            "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" \
+            --output /tmp/basketcut-compare/passing.webm
+          curl --fail --location --retry 3 --max-time 110 \
+            --user-agent "BasketCut-Research-Smoke/1.0" \
+            "https://upload.wikimedia.org/wikipedia/commons/f/f1/VCB_FCB%284%29.webm" \
+            --output /tmp/basketcut-compare/free_throw.webm
+          for file in /tmp/basketcut-compare/{passing,free_throw}.webm; do
+            test "$(stat -c%s "$file")" -gt 100000
+            ffprobe -v error -show_entries format=duration,size -of json "$file"
+          done
+      - name: CPU compare on two authentic basketball clips
+        run: |
+          python -m scripts.shot_clip_diagnostics \
+            --video /tmp/basketcut-compare/passing.webm \
+            --out /tmp/basketcut-compare/pass-result \
+            --source-url "https://commons.wikimedia.org/wiki/File:Basketpass.webm" \
+            --license "CC0 1.0 (Benoît Prieur)" --description-label passing
+          python -m scripts.shot_clip_diagnostics \
+            --video /tmp/basketcut-compare/free_throw.webm \
+            --out /tmp/basketcut-compare/throw-result \
+            --source-url "https://commons.wikimedia.org/wiki/File:VCB_FCB(4).webm" \
+            --license "CC BY-SA 3.0 (Coentor)" --description-label free_throw
+          python -m highlights.vision.cpu \
+            --video /tmp/basketcut-compare/free_throw.webm \
+            --out /tmp/basketcut-compare/free_throw_proposals.json
+      - name: Attribution for share-alike test excerpt
+        run: |
+          printf '%s\n' \
+            'Original: VCB FCB(4).webm by Coentor' \
+            'https://commons.wikimedia.org/wiki/File:VCB_FCB(4).webm' \
+            'License: Creative Commons Attribution-ShareAlike 3.0 Unported' \
+            'https://creativecommons.org/licenses/by-sa/3.0/' \
+            'Alterations: derived test preview/contact sheet; no original video redistributed here.' \
+            'The preview is provided under CC BY-SA 3.0; cite the creator and license if reused.' \
+            > /tmp/basketcut-compare/ATTRIBUTION.txt
+      - name: Upload diagnostic JSON and visual filmstrips
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketball-free-throw-cpu-diagnostics
+          path: |
+            /tmp/basketcut-compare/pass-result/
+            /tmp/basketcut-compare/throw-result/
+            /tmp/basketcut-compare/free_throw_proposals.json
+            /tmp/basketcut-compare/ATTRIBUTION.txt
+          retention-days: 7
+          if-no-files-found: warn

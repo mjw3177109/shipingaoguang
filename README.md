@@ -108,3 +108,14 @@ python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --o
 ```
 
 真实篮球视频 GitHub Actions 测试见 `docs/REAL_VIDEO_SMOKE.md`。固定机位的完整比赛素材与短片特写的表现可能不同，不可把测试片段的结果当作篮球馆的实际识别率。
+
+## V0.2-CPU 实战验证：传球 vs 罚球、预训练模型（最新）
+
+本轮新增两段**真实公开许可**的篮球比赛视频 CPU 对比，保留逐帧预览、颜色模型识别目标标记、时间段 JSON 与测试证据。
+
+- [颜色规则对比与误检可视化](docs/FREE_THROW_CPU_TEST.md)：发现传球、罚球均有 1 条颜色活动候选，不能区分投篮。
+- [真正的预训练 CPU 目标检测实验](docs/PRETRAINED_CPU_MODEL.md)：Torchvision COCO `sports ball`，可选 MobileNet320 / ResNet50 / 4 分块裁剪 / 手动篮筐 ROI。
+- Web 默认仍使用轻量 OpenCV 或音频候选；大型 Torch 权重**不安装在基础 Docker 容器**，需独立 CPU 推理环境运行命令并导入待审 JSON。
+- 真实罚球远景中检测框有明显离篮筐的情况；不把该结果描述成进球识别成功。
+
+查看 GitHub Actions 的 `Real Free Throw CPU Comparison` 和 `Free CPU Pretrained Ball Model Comparison` 工作流结果。真实视频下载于测试运行期，仓库不存原片。
