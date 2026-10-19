@@ -76,18 +76,31 @@ class Command(BaseCommand):
             if not Game.objects.filter(pk=queued.pk,ball_sampling_state="queued").update(ball_sampling_state="running"):
                 return True
             try:
-                outcome = scan_annotation_frames(queued.video.path,limit=24,max_samples=96)
-                source_times=[(s["time_seconds"],s["reason"],s["score"]) for s in outcome["suggestions"]]
-                existing=set(round(t,2) for t in queued.ball_frames.values_list("time_seconds",flat=True))
-                # Rebuild only unreviewed suggested timestamps; never modify verified annotations.
-                BallFrameSuggestion.objects.filter(game=queued).delete()
-                BallFrameSuggestion.objects.bulk_create([
-                    BallFrameSuggestion(game=queued,time_seconds=t,reason=reason,score=score)
-                    for t,reason,score in source_times if round(t,2) not in existing
-                ],ignore_conflicts=True)
+                # New rounds sample different temporal offsets. Preserve prior
+                # suggestions and all human labels; bound backlog to avoid bloat.
+                outcome = scan_annotation_frames(
+                    queued.video.path,limit=24,max_samples=96,
+                    sampling_round=max(0,queued.ball_sampling_round-1))
+                human=list(queued.ball_frames.values_list("time_seconds",flat=True))
+                prior=list(queued.ball_suggestions.values_list("time_seconds",flat=True))
+                occupied=human+prior
+                fresh=[]
+                for suggestion in outcome["suggestions"]:
+                    if len(prior)+len(fresh)>=300:
+                        break
+                    t=suggestion["time_seconds"]
+                    if any(abs(t-prev)<.25 for prev in occupied):
+                        continue
+                    occupied.append(t)
+                    fresh.append(BallFrameSuggestion(
+                        game=queued,time_seconds=t,
+                        reason=suggestion["reason"],score=suggestion["score"]))
+                BallFrameSuggestion.objects.bulk_create(fresh,ignore_conflicts=True)
                 Game.objects.filter(pk=queued.pk).update(
                     ball_sampling_state="ready",ball_sampling_error="")
-                self.stdout.write(f"Game {queued.pk}: {queued.ball_suggestions.count()} unverified annotation suggestions")
+                self.stdout.write(
+                    f"Game {queued.pk}: sampling round {queued.ball_sampling_round}, "
+                    f"added {len(fresh)}, pending {queued.ball_suggestions.count()} (unverified)")
             except Exception as exc:
                 Game.objects.filter(pk=queued.pk).update(
                     ball_sampling_state="failed",ball_sampling_error=str(exc)[:600])

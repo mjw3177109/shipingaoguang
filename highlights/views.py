@@ -422,3 +422,6 @@ from .ball_views import (ball_labels, ball_frame_jpg, save_ball_label,
 
 # V0.6 owner-only research observation import (all results require manual review)
 from .v06_views import import_research_observations
+
+# V0.8 owner-scoped campaign board + data readiness report
+from .campaign_views import ball_campaign, ball_campaign_json

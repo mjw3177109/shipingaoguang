@@ -1,0 +1,60 @@
+name: V0.8 Real Basketball Video Repeated CPU Sampling
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/v08-multigame-label-campaign]
+    paths:
+      - "highlights/vision/annotation_sampler.py"
+      - ".github/workflows/v08-cpu-multiround.yml"
+jobs:
+  real-cpu-grid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lightweight CPU-only dependencies
+        run: python -m pip install -r requirements-cpu.txt
+      - name: Download CC-licensed real passing and free throw source video
+        run: |
+          mkdir -p /tmp/basketcut-v08
+          curl -fL --retry 3 --max-time 110 "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" -o /tmp/basketcut-v08/passing.webm
+          curl -fL --retry 3 --max-time 110 "https://upload.wikimedia.org/wikipedia/commons/f/f1/VCB_FCB%284%29.webm" -o /tmp/basketcut-v08/free_throw.webm
+      - name: Sample distinct real timestamps on each CPU round
+        run: |
+          python -m highlights.vision.annotation_sampler --video /tmp/basketcut-v08/passing.webm --out /tmp/basketcut-v08/passing_round0.json --round 0 --limit 8
+          python -m highlights.vision.annotation_sampler --video /tmp/basketcut-v08/passing.webm --out /tmp/basketcut-v08/passing_round1.json --round 1 --limit 8
+          python -m highlights.vision.annotation_sampler --video /tmp/basketcut-v08/free_throw.webm --out /tmp/basketcut-v08/free_throw_round0.json --round 0 --limit 8
+          python -m highlights.vision.annotation_sampler --video /tmp/basketcut-v08/free_throw.webm --out /tmp/basketcut-v08/free_throw_round1.json --round 1 --limit 8
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('/tmp/basketcut-v08')
+          for clip in ('passing','free_throw'):
+              a=json.loads((root/f'{clip}_round0.json').read_text())
+              b=json.loads((root/f'{clip}_round1.json').read_text())
+              assert a['analysis']['device']=='cpu'
+              assert b['analysis']['device']=='cpu'
+              assert a['analysis']['sampling_round']==0
+              assert b['analysis']['sampling_round']==1
+              assert a['analysis']['decoded_frames']>=1
+              assert b['analysis']['decoded_frames']>=1
+              ts_a={x['time_seconds'] for x in a['suggestions']}
+              ts_b={x['time_seconds'] for x in b['suggestions']}
+              assert ts_a and ts_b
+              assert ts_a!=ts_b, 'Two sampling rounds must expose distinct timestamps'
+              assert all('ball_absent' not in x for x in a['suggestions']+b['suggestions'])
+              print(clip,'round 0',len(ts_a),'round 1',len(ts_b),
+                    'new times',len(ts_b-ts_a),
+                    'no auto-labeled ball/negative samples')
+          PY
+      - name: Share metadata only, never raw source files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v08-real-video-cpu-multiple-round-suggestions
+          path: /tmp/basketcut-v08/*_round*.json
+          retention-days: 7
+          if-no-files-found: warn

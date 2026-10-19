@@ -48,8 +48,10 @@ def ball_labels(request, pk):
     total = game.ball_frames.count()
     reviewed = game.ball_frames.filter(quality_verified=True).count()
     suggestions = game.ball_suggestions.order_by("time_seconds")[:50]
+    gallery_suggestions = game.ball_suggestions.order_by("-score","time_seconds")[:6]
     return render(request, "ball_labels.html", {"game":game, "labels":rows,
                                                 "suggestions":suggestions,
+                                                "gallery_suggestions":gallery_suggestions,
                                                 "page_obj":page,
                                                 "verified_count":reviewed,
                                                 "annotation_count":total,
