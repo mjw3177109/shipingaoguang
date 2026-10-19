@@ -16,7 +16,7 @@ from .cpu import _activity_candidates
 
 
 def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
-                        min_confidence=.16, architecture="mobile320", tiles=1):
+                        min_confidence=.16, architecture="mobile320", tiles=1, hoops=None):
     import cv2
     import torch
     from torchvision.models.detection import (
@@ -25,7 +25,8 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
         fasterrcnn_resnet50_fpn,
         FasterRCNN_ResNet50_FPN_Weights,
     )
-    from .events import BallObservation
+    from .events import BallObservation, validate_hoops, propose_shots
+    checked_hoops = validate_hoops(hoops) if hoops else []
 
     if not (.35 <= interval <= 5 and 1 <= max_frames <= 1800 and
             .05 <= min_confidence <= .95):
@@ -110,7 +111,10 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
             raise ValueError("No decoded video frames")
         scoped = min(duration, last_second+interval)
         incomplete = scoped < duration - .05
-        proposals = _activity_candidates(observations, duration)
+        if checked_hoops:
+            proposals = propose_shots(observations, checked_hoops, duration, min_hits=2)
+        else:
+            proposals = _activity_candidates(observations, duration)
         for clip in proposals:
             clip["source"] = "model_proposal"
             clip["note"] = "CPU预训练模型检出运动球候选，非投篮或命中结论；必须人工核对"
@@ -121,6 +125,7 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
                 "kind": "pretrained_coco_sports_ball_cpu",
                 "model": f"torchvision_fasterrcnn_{architecture}",
                 "tiles_per_frame": tiles,
+                "hoop_roi_enabled": bool(checked_hoops),
                 "device": "cpu",
                 "sample_interval_seconds": interval,
                 "frames_processed": decoded,
@@ -130,6 +135,7 @@ def scan_pretrained_cpu(video_path, *, interval=.8, max_frames=24,
                 "elapsed_seconds": round(time.monotonic()-start_wall, 2),
                 "warning": "COCO sports ball detection is not shot detection. Confirm every clip.",
             },
+            "hoops": checked_hoops,
             "observations": [
                 {"time":round(o.time,3),"x":round(o.x,5),"y":round(o.y,5),
                  "confidence":round(o.confidence,4)} for o in observations[:500]],
@@ -148,12 +154,19 @@ def main(argv=None):
     p.add_argument("--threshold", type=float, default=.16)
     p.add_argument("--arch", choices=("mobile320","resnet50"), default="mobile320")
     p.add_argument("--tiles", choices=(1,4), type=int, default=1)
+    p.add_argument("--config", help="Optional Django hoop ROI JSON")
     args = p.parse_args(argv)
+    config = json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
     if args.config and not config.get("hoops"):
         raise ValueError("--config must contain at least one hoop region")
     result = scan_pretrained_cpu(args.video, interval=args.interval,
                max_frames=args.max_frames, min_confidence=args.threshold,
-               architecture=args.arch, tiles=args.tiles)
+               architecture=args.arch, tiles=args.tiles, hoops=config.get("hoops"))
+    if config:
+        if "game_id" in config:
+            result["game_id"] = config["game_id"]
+        if "video_duration_seconds" in config and abs(float(config["video_duration_seconds"]) - result["video_duration_seconds"]) > 3:
+            raise ValueError("Hoop config does not match source video duration")
     dst = Path(args.out)
     dst.parent.mkdir(parents=True,exist_ok=True)
     dst.write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding="utf-8")
