@@ -1,16 +1,18 @@
 import os
+import subprocess
 import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.files import File
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import Candidate, Export, Game, Venue
-from .services import audio_peaks, probe_duration
+from .services import audio_peaks, probe_duration, analyze_game, render_export
 
 
 class VideoFlowTests(TestCase):
@@ -91,6 +93,35 @@ class VideoFlowTests(TestCase):
             self.assertTrue(Command()._process_one())
         self.game.refresh_from_db()
         self.assertEqual(self.game.state, "ready")
+
+    def test_real_ffmpeg_end_to_end(self):
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            self.skipTest("FFmpeg not installed")
+        source = Path(self.tempdir) / "fixture.mp4"
+        subprocess.run([
+            "ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=blue:s=320x240:r=10",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=8000",
+            "-t", "3", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-shortest", str(source),
+        ], capture_output=True, check=True, timeout=90)
+        with source.open("rb") as stream:
+            self.game.video.save("fixture.mp4", File(stream))
+        self.game.duration_seconds = probe_duration(self.game.video.path)
+        self.game.save(update_fields=["duration_seconds"])
+        analyze_game(self.game)
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.state, "ready")
+        Candidate.objects.create(
+            game=self.game, start_seconds=.5, end_seconds=2.5,
+            review="approved", player_label="7号", source="manual")
+        job = Export.objects.create(game=self.game, player_label="7号")
+        render_export(job)
+        job.refresh_from_db()
+        self.assertEqual(job.state, "done")
+        self.assertTrue(Path(job.video.path).exists())
+        self.assertGreater(Path(job.video.path).stat().st_size, 500)
+        self.assertGreater(probe_duration(job.video.path), 1)
 
     def test_no_unauthorized_export(self):
         clip = Candidate.objects.create(game=self.game, start_seconds=1, end_seconds=4, review="approved")
