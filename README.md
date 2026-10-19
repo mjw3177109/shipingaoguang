@@ -181,3 +181,14 @@ python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --o
 - 代码已在许可明确的真实篮球片段上进行 CPU 两轮抽帧验证，验证的是**新时间点**，不代表实际识别到了篮球/进球。
 
 具体部署与质量边界请看 [docs/V08_LABEL_CAMPAIGN.md](docs/V08_LABEL_CAMPAIGN.md)。
+
+## V0.9 — CPU 专项模型训练与独立盲测实验（默认安全预检）
+
+本阶段把 V0.7 的人工二次复核导出、Torchvision CPU 模型训练、V0.5 COCO 基线/专项模型封存测试评测连接成 **可执行的单一研究命令**：
+
+- `python -m highlights.vision.experiment_v09 --dataset /data/dataset --out /data/check`：仅预检（无 Torch、无模型下载、无训练），检查真实有球/无球框、按比赛隔离 train/val/test、完整二次复核/权利依据、JPEG 和 YOLO 标签、SHA256、封存测试集完整性；数据不合格输出 `BLOCKED`。
+- `python -m highlights.vision.experiment_v09 --dataset /data/dataset --out /data/experiment --execute --epochs 2 --max-steps 100`：**仅当预检通过**才真正用 CPU 训练、推理新旧模型并出对照 JSON 与 checkpoint，保持 `research_only`，没有自动商用发布动作。
+- 训练 checkpoint 的数据集 manifest SHA256 和封存测试比赛 ID 由 CPU 推理时再校验，防止换数据集、串场或训练/测试泄漏。
+- 免费 GitHub CI 使用真实公开视频四帧标注验证**正确阻断样本不足**，另外使用明确为合成的数据验证即使数量、框、复核字段看似齐全也不能冒充真实训练条件。
+
+完整步骤与报告解释：[docs/V09_CPU_EXPERIMENT.md](docs/V09_CPU_EXPERIMENT.md)。目前**并没有足量真实人工复核的数据，因此没有能够证实准确率提升的新篮球专项模型**。
