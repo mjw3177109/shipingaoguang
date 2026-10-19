@@ -28,7 +28,7 @@
 <label><input type="checkbox" id="ball-absent" name="ball_absent" value="yes" style="width:auto"> 本帧确认无球（负样本）</label>
 <button class="primary" type="submit">保存此帧标注</button>
 </form>
-<hr><h2>三、训练数据授权确认</h2>
+<hr><h2>训练数据授权确认</h2>
 <p class="hint">上传篮球馆录像不等于拥有模型训练许可。请确保视频拍摄、相关人员授权以及数据处理依据允许该用途。</p>
 <form method="post" action="{% url 'approve_training_data' game.pk %}" class="stack">{% csrf_token %}
 <label>素材授权与来源依据<input name="rights_note" maxlength="240" value="{{ game.ball_training_rights }}" placeholder="例如：公开视频 CC0；具体来源 URL、授权条款" required></label>
@@ -36,6 +36,21 @@
 <button name="approve" value="no" class="ghost">撤销许可确认</button></div></form>
 <p class="hint">当前：{% if game.ball_training_approved %}已确认授权，可被管理员训练集导出工具读取。{% else %}未确认授权，不允许导出到训练集。{% endif %}</p>
 </section></div>
+<section class="panel" id="suggestion-queue">
+<h2>三、免费 CPU 智能抽帧（待人工确认）</h2>
+<p class="hint">从整段比赛自动挑选橙色疑似篮球、运动强的画面，以及一些普通背景画面。**全部只是待标注帧**，绝不自动生成篮球存在或无球标签。建议先看橙色球衣/地板干扰，再人工决定球框或无球。</p>
+<form action="{% url 'queue_ball_sampling' game.pk %}" method="post">{% csrf_token %}
+<button class="secondary" type="submit" {% if game.ball_sampling_state == 'queued' or game.ball_sampling_state == 'running' %}disabled{% endif %}>生成 24 个以内待审帧（CPU）</button>
+<span class="muted">状态：{{ game.get_ball_sampling_state_display }}</span></form>
+{% if game.ball_sampling_error %}<p class="alert danger">采样失败：{{ game.ball_sampling_error }}</p>{% endif %}
+{% if game.ball_sampling_state == 'queued' or game.ball_sampling_state == 'running' %}
+<p class="hint">任务在已有后台 Worker 中执行；稍后刷新此页面查看建议。</p>
+{% endif %}
+<div class="truth-tags">
+{% for sug in suggestions %}<button type="button" class="ghost" onclick="loadLabeledFrame({{ sug.time_seconds }})">
+▶ {{ sug.time_seconds|floatformat:2 }} 秒 · {% if sug.reason == 'orange_ambiguous' %}橙色干扰/疑似球{% elif sug.reason == 'motion' %}运动画面{% else %}普通画面{% endif %}
+</button>{% empty %}<p class="muted small">暂无待审建议。点击上方按钮抽帧；框选并保存后相应时间将从建议中移除。</p>{% endfor %}
+</div></section>
 <section class="panel"><h2>已标注的画面</h2><div class="table-scroll">
 <table><thead><tr><th>时间</th><th>标注</th><th>坐标</th><th>删除</th></tr></thead><tbody>
 {% for item in labels %}<tr><td><button type="button" class="ghost" onclick="loadLabeledFrame({{ item.time_seconds }})">{{ item.time_seconds|floatformat:2 }}s</button></td>

@@ -38,6 +38,8 @@ class Game(models.Model):
     annotations_complete = models.BooleanField(default=False)
     ball_training_approved = models.BooleanField(default=False)
     ball_training_rights = models.CharField(max_length=240, blank=True)
+    ball_sampling_state = models.CharField(max_length=16, default="idle", choices=[("idle","未采样"),("queued","等待CPU采样"),("running","CPU采样中"),("ready","待人工标注"),("failed","采样失败")])
+    ball_sampling_error = models.CharField(max_length=600, blank=True)
     analysis_engine = models.CharField(max_length=16, default="audio", choices=[("audio", "声音峰值"), ("cpu", "CPU 球状物体候选")])
     state = models.CharField(max_length=16, choices=State.choices, default=State.UPLOADED)
     error = models.TextField(blank=True)
@@ -112,3 +114,17 @@ class BallFrameAnnotation(models.Model):
             models.UniqueConstraint(fields=["game", "time_seconds"],
                                     name="unique_ball_frame_time"),
         ]
+
+
+class BallFrameSuggestion(models.Model):
+    """A CPU-recommended timestamp only. Not verified positive or negative."""
+    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="ball_suggestions")
+    time_seconds = models.FloatField()
+    reason = models.CharField(max_length=24)
+    score = models.FloatField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["time_seconds", "id"]
+        constraints = [models.UniqueConstraint(fields=["game","time_seconds"],
+                          name="unique_suggested_ball_frame")]

@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from .ball_labels import validate_ball_label
-from .models import BallFrameAnnotation, Game
+from .models import BallFrameAnnotation, BallFrameSuggestion, Game
 
 
 def _owner_game(request, pk):
@@ -42,7 +42,9 @@ def extract_frame_jpeg(game, t, *, width=960):
 def ball_labels(request, pk):
     game = _owner_game(request, pk)
     rows = game.ball_frames.order_by("time_seconds")[:500]
-    return render(request, "ball_labels.html", {"game":game, "labels":rows})
+    suggestions = game.ball_suggestions.order_by("time_seconds")[:50]
+    return render(request, "ball_labels.html", {"game":game, "labels":rows,
+                                                "suggestions":suggestions})
 
 
 @login_required
@@ -80,6 +82,8 @@ def save_ball_label(request, pk):
         BallFrameAnnotation.objects.update_or_create(
             game=game,time_seconds=moment,
             defaults={"ball_absent":absent,"x":x,"y":y,"w":w,"h":h})
+        BallFrameSuggestion.objects.filter(game=game,time_seconds__gte=moment-.02,
+                                           time_seconds__lte=moment+.02).delete()
         Game.objects.filter(pk=pk).update(ball_training_approved=False)
     messages.success(request, f"已保存 {moment:.2f}s 球框标注。训练许可确认需重新提交。")
     return redirect("ball_labels",pk=pk)
@@ -110,4 +114,19 @@ def approve_training_data(request, pk):
     game.ball_training_rights = text[:240]
     game.save(update_fields=["ball_training_approved","ball_training_rights"])
     messages.success(request, "训练数据授权确认已更新。")
+    return redirect("ball_labels",pk=pk)
+
+
+@login_required
+@require_POST
+def queue_ball_sampling(request, pk):
+    game = _owner_game(request,pk)
+    # Do not block Django HTTP workers on ffmpeg/OpenCV. Existing CPU worker runs it.
+    changed = Game.objects.filter(pk=game.pk,ball_sampling_state__in=(
+        "idle","ready","failed")).update(
+            ball_sampling_state="queued",ball_sampling_error="")
+    if changed:
+        messages.success(request,"CPU 智能抽帧已排队；标注建议不等于真实篮球标签。")
+    else:
+        messages.info(request,"此场比赛已经在等待或运行 CPU 抽帧。")
     return redirect("ball_labels",pk=pk)

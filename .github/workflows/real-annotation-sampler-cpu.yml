@@ -1,0 +1,50 @@
+name: CPU Annotation Sampling on Licensed Basketball Videos
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/v04-cpu-active-label-queue]
+    paths:
+      - ".github/workflows/real-annotation-sampler-cpu.yml"
+      - "highlights/vision/annotation_sampler.py"
+jobs:
+  licensed-cpu-sampling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Minimal no-GPU OpenCV setup
+        run: python -m pip install -r requirements-cpu.txt
+      - name: Fetch licensed public basketball clips
+        run: |
+          mkdir -p /tmp/real-sampling
+          curl -fL --retry 3 --max-time 90 \
+            "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" -o /tmp/real-sampling/passing.webm
+          curl -fL --retry 3 --max-time 90 \
+            "https://upload.wikimedia.org/wikipedia/commons/f/f1/VCB_FCB%284%29.webm" -o /tmp/real-sampling/throw.webm
+      - name: Generate real CPU annotation suggestions, never automatic labels
+        run: |
+          python -m highlights.vision.annotation_sampler --video /tmp/real-sampling/passing.webm \
+            --limit 8 --out /tmp/real-sampling/passing_suggestions.json
+          python -m highlights.vision.annotation_sampler --video /tmp/real-sampling/throw.webm \
+            --limit 8 --out /tmp/real-sampling/throw_suggestions.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for name in ("passing","throw"):
+              data=json.loads(Path(f"/tmp/real-sampling/{name}_suggestions.json").read_text())
+              assert data["schema_version"]==1
+              assert data["analysis"]["device"]=="cpu"
+              assert data["analysis"]["decoded_frames"]>=1
+              assert all(0<=r["time_seconds"]<data["video_duration_seconds"] for r in data["suggestions"])
+              assert all(r["reason"] in ("orange_ambiguous","motion","coverage") for r in data["suggestions"])
+              print(name,":",data["analysis"]["decoded_frames"],"frames sampled,",len(data["suggestions"]),"timestamps to HUMAN review")
+          PY
+      - name: Store metadata only, not original video
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-basketball-cpu-annotation-suggestions
+          path: /tmp/real-sampling/*_suggestions.json
+          retention-days: 7
