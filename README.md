@@ -74,3 +74,12 @@ Kaggle/Colab 免费 GPU 用于研发试验，不能保证长期可用，也不�
 ## Kaggle 免费 GPU 视觉实验
 
 `notebooks/kaggle_ball_probe.ipynb` 提供不依赖服务端常驻 GPU 的试验：Kaggle Notebook 设置 GPU，加上有授权比赛视频的数据集，按 Notebook 修改 `VIDEO_PATH`，得到 `candidates.json`。回到对应比赛页用“导入候选片段”导入，然后人工复核。注意：COCO 运动球检测不等于进球判定，这只是视觉候选接口的技术验证。Ultralytics 模型商用需要额外确认许可证。
+
+## V0.2 GPU 视觉投篮候选（新增）
+
+V0.2 引入每场比赛篮筐框选、Torchvision sports ball GPU 检测、篮筐周围时序候选、带比赛 ID/时长校验的 JSON 回传。**不是进球成功识别，不能省略人工审核。**
+
+操作说明：[`docs/V0.2_VISION_GUIDE.md`](docs/V0.2_VISION_GUIDE.md)。
+免费 GPU Notebook：[`notebooks/kaggle_shot_candidates_v02.ipynb`](notebooks/kaggle_shot_candidates_v02.ipynb)。
+
+原 V0.1 的 CPU 声音峰值/手动选片/FFmpeg 导出保留不变；Kaggle 仅为手动研发流程，不支持自动调用 Kaggle 作为收费平台 GPU Worker。

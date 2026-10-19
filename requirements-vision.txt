@@ -1,0 +1,5 @@
+# Optional research/GPU dependencies: install in Kaggle, not in the Django web image.
+# On Kaggle, prefer the preinstalled matching torch/torchvision pair.
+torch>=2.4,<3
+torchvision>=0.19,<1
+opencv-python-headless>=4.8,<5

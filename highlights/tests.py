@@ -13,6 +13,7 @@ from django.urls import reverse
 
 from .models import Candidate, Export, Game, Venue
 from .services import audio_peaks, probe_duration, analyze_game, render_export
+from .vision.events import BallObservation, propose_shots, validate_hoops
 
 
 class VideoFlowTests(TestCase):
@@ -76,6 +77,49 @@ class VideoFlowTests(TestCase):
         for _ in range(2):
             self.assertEqual(self.client.post(url, {"proposals":
                 SimpleUploadedFile("proposals.json", payload)}).status_code, 302)
+        self.assertEqual(self.game.candidates.count(), 1)
+        self.assertEqual(self.game.candidates.first().review, "pending")
+
+    def test_hoop_settings_tenant_and_config(self):
+        import json
+        self.client.force_login(self.other)
+        url = reverse("save_hoops", args=[self.game.pk])
+        self.assertEqual(self.client.post(url, {"hoops": "[]"}).status_code, 404)
+        self.assertEqual(self.client.get(reverse("vision_config", args=[self.game.pk])).status_code, 404)
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(reverse("vision_config", args=[self.game.pk])).status_code, 400)
+        hoops = [{"x": .4, "y": .1, "w": .1, "h": .1}]
+        self.assertEqual(self.client.post(url, {"hoops": json.dumps(hoops)}).status_code, 302)
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.hoops, hoops)
+        config = self.client.get(reverse("vision_config", args=[self.game.pk]))
+        self.assertEqual(config.status_code, 200)
+        self.assertEqual(config.json()["game_id"], self.game.pk)
+        self.assertEqual(config.json()["hoops"], hoops)
+        self.client.post(url, {"hoops": '[{"x":NaN,"y":0.1,"w":0.1,"h":0.1}]'})
+        self.game.refresh_from_db()
+        self.assertEqual(self.game.hoops, hoops)
+
+    def test_reject_wrong_video_metadata(self):
+        import json
+        self.client.force_login(self.owner)
+        url = reverse("import_proposals", args=[self.game.pk])
+        proposal = {"schema_version": 2, "game_id": self.game.pk + 1,
+                    "video_duration_seconds": 120,
+                    "candidates": [{"start_seconds": 5, "end_seconds": 12,
+                                    "source": "model_proposal", "score": .8}]}
+        response = self.client.post(url, {"proposals":
+            SimpleUploadedFile("clip.json", json.dumps(proposal).encode())})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(self.game.candidates.exists())
+        proposal["game_id"] = self.game.pk
+        proposal["video_duration_seconds"] = 150
+        self.client.post(url, {"proposals":
+            SimpleUploadedFile("clip.json", json.dumps(proposal).encode())})
+        self.assertFalse(self.game.candidates.exists())
+        proposal["video_duration_seconds"] = 120
+        self.client.post(url, {"proposals":
+            SimpleUploadedFile("clip.json", json.dumps(proposal).encode())})
         self.assertEqual(self.game.candidates.count(), 1)
         self.assertEqual(self.game.candidates.first().review, "pending")
 
@@ -158,3 +202,31 @@ class AudioUnitTests(TestCase):
         # Test missing media results in no fake detected basket.
         result = audio_peaks("/no-such-file.mp4", 60)
         self.assertEqual(result, [])
+
+
+class VisionEventTests(TestCase):
+    def test_near_hoop_event_not_a_scored_basket(self):
+        hoops = [{"x": .4, "y": .2, "w": .1, "h": .06}]
+        points = [BallObservation(t, x, .25, .83)
+                  for t, x in ((10, .45), (11.5, .47), (30, .1), (31.5, .9))]
+        clips = propose_shots(points, hoops, duration=60)
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(clips[0]["source"], "model_proposal")
+        self.assertIn("非得分结论", clips[0]["note"])
+        self.assertEqual(clips[0]["start_seconds"], 5)
+        self.assertEqual(clips[0]["end_seconds"], 18.5)
+
+    def test_no_frames_or_invalid_region(self):
+        hoops = [{"x": .4, "y": .2, "w": .1, "h": .06}]
+        self.assertEqual(propose_shots([], hoops, 60), [])
+        self.assertEqual(propose_shots([BallObservation(5, .45, .24, .9)], hoops, 60), [])
+        with self.assertRaises(ValueError):
+            validate_hoops([{"x": .9, "y": .4, "w": .3, "h": .1}])
+        with self.assertRaises(ValueError):
+            validate_hoops([{"x": float("nan"), "y": .4, "w": .1, "h": .1}])
+
+    def test_deduplicate_overlapping_two_hoops(self):
+        hoops = [{"x": .4, "y": .2, "w": .1, "h": .06},
+                 {"x": .42, "y": .2, "w": .1, "h": .06}]
+        points = [BallObservation(t, .45, .24, .9) for t in (4, 5, 6)]
+        self.assertEqual(len(propose_shots(points, hoops, 40)), 1)

@@ -1,3 +1,4 @@
+{% load static %}
 {% extends 'base.html' %}{% block title %}{{ game.title }} · BasketCut{% endblock %}
 {% block body %}<a href="{% url 'dashboard' %}" class="back">← 返回比赛列表</a>
 <div class="heading"><div><div class="eyebrow">{{ game.venue.name }} / 比赛管理</div><h1>{{ game.title }}</h1>
@@ -6,7 +7,19 @@
 <button class="primary" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>分析声音峰值候选</button></form></div>
 {% if game.error %}<div class="alert danger">后台任务错误：{{ game.error }}</div>{% endif %}
 <div class="columns wide"><section class="panel">
-<h2>原始录像预览</h2><video id="player" controls preload="metadata" playsinline src="{% url 'source_video' game.pk %}"></video>
+<h2>原始录像预览</h2>
+<div class="video-roi-shell" id="video-roi-shell">
+<video id="player" controls preload="metadata" playsinline src="{% url 'source_video' game.pk %}"></video>
+<div class="roi-layer" id="roi-layer" aria-label="篮球筐标定区域"></div>
+</div>
+<p class="hint">V0.2：将视频暂停到篮筐清晰的画面，点击“框选篮筐”，在视频里拖动鼠标选出篮圈附近范围，最多 2 个。请尽量贴近篮圈，不要框住整个半场。</p>
+<div class="actions"><button class="secondary" type="button" id="roi-toggle">开始框选篮筐</button><button class="secondary" type="button" id="roi-undo">撤销上一框</button><button class="ghost" type="button" id="roi-clear">清空框选</button></div>
+<form action="{% url 'save_hoops' game.pk %}" method="post" class="stack" style="margin-top:12px">{% csrf_token %}
+<input type="hidden" id="hoops-json" name="hoops" value="[]">
+<div class="actions"><button type="submit" class="primary">保存篮筐位置</button><a class="inline-link" href="{% url 'vision_config' game.pk %}">下载 GPU 配置 JSON ↓</a></div>
+</form>
+{{ game.hoops|json_script:"initial-hoops" }}
+<script src="{% static 'hoop-roi.js' %}" defer></script>
 <p class="hint">可点击候选中的“跳转”定位到开始时间。原视频与下载文件均需登录权限。</p>
 </section><section class="panel"><h2>手动添加精彩镜头</h2>
 <form method="post" action="{% url 'add_candidate' game.pk %}" class="stack">{% csrf_token %}
@@ -19,7 +32,7 @@
 <label>仅输出某球员（可空）<input name="player_label" maxlength="100" placeholder="与下方审核里的球员标识一致"></label>
 <button class="primary">加入渲染队列</button></form>
 <p class="hint">当前导出为 720P/30fps 横屏无声视频；特效、BGM、竖屏在后续版本实现。</p>
-<hr><h2>导入 Kaggle / GPU 视觉候选</h2><p class="muted small">导入 JSON 不代表识别准确，所有导入的片段默认待审。</p>
+<hr><h2>导入 Kaggle / GPU 篮筐附近候选</h2><p class="muted small">先框选篮筐并下载配置 JSON，在 Kaggle 对同一场录像运行视觉模型；候选不代表进球命中，必须人工审核。</p>
 <form action="{% url 'import_proposals' game.pk %}" method="post" enctype="multipart/form-data" class="stack">{% csrf_token %}
 <label>候选 JSON<input type="file" name="proposals" accept=".json,application/json" required></label>
 <button class="secondary" type="submit">导入候选片段</button></form></section></div>
