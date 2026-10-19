@@ -1,0 +1,42 @@
+name: V0.5 Sealed Test Benchmark Logic (Synthetic)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/v05-independent-holdout-benchmark]
+    paths:
+      - "highlights/vision/split_v05.py"
+      - "highlights/vision/compare_v05.py"
+      - "scripts/synthetic_v05_compare_smoke.py"
+      - ".github/workflows/v05-model-benchmark-ci.yml"
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify fake-data rejection and sealed test metrics, no GPU
+        run: |
+          python -m scripts.synthetic_v05_compare_smoke --out /tmp/basketcut-v05-synthetic
+          python -m highlights.vision.compare_v05 \
+            --dataset /tmp/basketcut-v05-synthetic \
+            --baseline /tmp/basketcut-v05-synthetic/baseline.json \
+            --challenger /tmp/basketcut-v05-synthetic/challenger.json \
+            --out /tmp/basketcut-v05-synthetic/cli-report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('/tmp/basketcut-v05-synthetic/cli-report.json').read_text())
+          assert data['eligible_for_independent_human_review'] is False
+          assert data['production_release'] is False
+          assert data['checks']['non_synthetic_real_data'] is False
+          print('V0.5 gate holds on synthetic perfect-score toy data.')
+          PY
+      - name: Upload logic report only
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v05-synthetic-ci-not-accuracy
+          path: /tmp/basketcut-v05-synthetic/cli-report.json
+          retention-days: 7
