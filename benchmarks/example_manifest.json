@@ -1,0 +1,10 @@
+{
+  "games": [
+    {
+      "id": "synthetic-ci-example",
+      "proposals": "example_proposals.json",
+      "truth": "example_truth.json"
+    }
+  ],
+  "_note": "Entirely synthetic metrics, not real basketball performance"
+}

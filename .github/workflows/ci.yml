@@ -21,3 +21,6 @@ jobs:
       - run: python manage.py makemigrations --check --dry-run
       - run: python manage.py migrate --noinput
       - run: python manage.py test --verbosity 2
+      - run: python -m compileall -q highlights
+      - run: python -m highlights.vision.evaluate --proposals benchmarks/example_proposals.json --truth benchmarks/example_truth.json --out /tmp/basketcut-ci-single
+      - run: python -m highlights.vision.batch --manifest benchmarks/example_manifest.json --out /tmp/basketcut-ci-batch

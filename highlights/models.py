@@ -35,6 +35,7 @@ class Game(models.Model):
     video = models.FileField(upload_to=video_path)
     duration_seconds = models.FloatField(default=0)
     hoops = models.JSONField(default=list, blank=True)  # V0.2 calibrated hoop regions
+    annotations_complete = models.BooleanField(default=False)
     state = models.CharField(max_length=16, choices=State.choices, default=State.UPLOADED)
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
