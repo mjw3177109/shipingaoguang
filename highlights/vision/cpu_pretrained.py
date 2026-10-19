@@ -149,6 +149,8 @@ def main(argv=None):
     p.add_argument("--arch", choices=("mobile320","resnet50"), default="mobile320")
     p.add_argument("--tiles", choices=(1,4), type=int, default=1)
     args = p.parse_args(argv)
+    if args.config and not config.get("hoops"):
+        raise ValueError("--config must contain at least one hoop region")
     result = scan_pretrained_cpu(args.video, interval=args.interval,
                max_frames=args.max_frames, min_confidence=args.threshold,
                architecture=args.arch, tiles=args.tiles)

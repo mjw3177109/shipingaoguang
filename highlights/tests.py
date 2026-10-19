@@ -233,6 +233,15 @@ class VisionEventTests(TestCase):
         with self.assertRaises(ValueError):
             validate_hoops([{"x": float("nan"), "y": .4, "w": .1, "h": .1}])
 
+    def test_far_from_hoop_false_ball_detection_is_not_a_shot(self):
+        """Observed CPU pre-trained box in the bottom court is not a rim event."""
+        hoops = [{"x": .24, "y": .37, "w": .08, "h": .1}]
+        false_boxes = [
+            BallObservation(2, .49, .817, .54),
+            BallObservation(2.8, .542, .818, .37),
+        ]
+        self.assertEqual(propose_shots(false_boxes, hoops, 5.767), [])
+
     def test_deduplicate_overlapping_two_hoops(self):
         hoops = [{"x": .4, "y": .2, "w": .1, "h": .06},
                  {"x": .42, "y": .2, "w": .1, "h": .06}]

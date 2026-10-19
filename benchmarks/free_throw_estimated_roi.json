@@ -1,0 +1,12 @@
+{
+  "hoops": [
+    {
+      "x": 0.24,
+      "y": 0.37,
+      "w": 0.08,
+      "h": 0.1
+    }
+  ],
+  "video_duration_seconds": 5.767,
+  "_note": "Approximate location marked from a reduced diagnostic contact sheet; NOT frame-verified human ground truth. For ROI code smoke test only."
+}

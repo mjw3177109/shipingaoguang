@@ -50,10 +50,15 @@ jobs:
             --video /tmp/basketcut-learned/free_throw.webm \
             --out /tmp/basketcut-learned/free_throw_resnet50.json \
             --interval 1.0 --max-frames 8 --arch resnet50 --threshold 0.1
+          python -m highlights.vision.cpu_pretrained \
+            --video /tmp/basketcut-learned/free_throw.webm \
+            --out /tmp/basketcut-learned/free_throw_hoop_roi.json \
+            --config benchmarks/free_throw_estimated_roi.json \
+            --interval 0.8 --max-frames 12 --arch mobile320 --tiles 4 --threshold 0.08
           python - <<'PY'
           import json
           from pathlib import Path
-          for name in ('passing_model','free_throw_model','free_throw_mobile_tiled','free_throw_resnet50'):
+          for name in ('passing_model','free_throw_model','free_throw_mobile_tiled','free_throw_resnet50','free_throw_hoop_roi'):
               data=json.loads(Path(f"/tmp/basketcut-learned/{name}.json").read_text())
               print(f"{name}: ball detections={data['analysis']['ball_detections']}, "
                     f"candidate clips={len(data['candidates'])}, "
@@ -68,5 +73,6 @@ jobs:
             /tmp/basketcut-learned/*_model.json
             /tmp/basketcut-learned/free_throw_mobile_tiled.json
             /tmp/basketcut-learned/free_throw_resnet50.json
+            /tmp/basketcut-learned/free_throw_hoop_roi.json
           retention-days: 7
           if-no-files-found: warn
