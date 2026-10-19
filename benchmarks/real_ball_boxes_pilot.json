@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "purpose": "HUMAN-VISUAL PILOT ONLY; four frames, not comprehensive labels and not a basketball production benchmark",
+  "reviewed_by": "Manual visual inspection of Wikimedia video frames in this development session",
+  "image_resolution": {
+    "width": 1280,
+    "height": 720
+  },
+  "games": [
+    {
+      "id": 101,
+      "split": "train",
+      "source_name": "passing",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Basketpass.webm",
+      "rights": "CC0 1.0 - Benoît Prieur",
+      "frames": [
+        {
+          "time_seconds": 1,
+          "box_xyxy_pixels": [
+            681,
+            367,
+            697,
+            384
+          ]
+        },
+        {
+          "time_seconds": 2,
+          "box_xyxy_pixels": [
+            757,
+            380,
+            778,
+            403
+          ]
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "split": "val",
+      "source_name": "free_throw",
+      "source_url": "https://commons.wikimedia.org/wiki/File:VCB_FCB(4).webm",
+      "rights": "CC BY-SA 3.0 - Coentor",
+      "frames": [
+        {
+          "time_seconds": 3.5,
+          "box_xyxy_pixels": [
+            726,
+            433,
+            760,
+            465
+          ]
+        },
+        {
+          "time_seconds": 4,
+          "box_xyxy_pixels": [
+            624,
+            270,
+            655,
+            306
+          ]
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Only four isolated bbox labels, approximate visual localization; frames between them are unannotated, not negative.",
+    "Training/validation split by source game; evaluation results are not representative and must not be advertised.",
+    "CC BY-SA video-derived samples require attribution and license review before redistribution."
+  ]
+}

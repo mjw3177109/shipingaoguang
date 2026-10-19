@@ -1,0 +1,38 @@
+name: Specialist CPU Training Smoke (Synthetic Only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/basketball-specialist-data-v03]
+    paths:
+      - "highlights/vision/train_specialist.py"
+      - "highlights/vision/specialist.py"
+      - "scripts/synthetic_specialist_smoke.py"
+      - ".github/workflows/specialist-training-cpu.yml"
+jobs:
+  train-toy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: CPU Torch setup
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          python -m pip install pillow
+      - name: Real PyTorch training mechanics on synthetic images
+        run: |
+          python -m scripts.synthetic_specialist_smoke \
+            --out /tmp/basketcut-toy-data \
+            --checkpoint /tmp/basketcut-specialist-toy.pt
+          test -s /tmp/basketcut-specialist-toy.pt
+          test -s /tmp/basketcut-specialist-toy.report.json
+      - name: Store report only; do not distribute worthless synthetic model
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: specialist-toy-training-mechanics-report
+          path: /tmp/basketcut-specialist-toy.report.json
+          retention-days: 7
+          if-no-files-found: warn

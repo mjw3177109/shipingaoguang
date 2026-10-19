@@ -18,6 +18,11 @@ urlpatterns = [
     path("games/<int:pk>/labels/complete/", views.confirm_ground_truth, name="confirm_ground_truth"),
     path("games/<int:pk>/labels/truth.json", views.download_ground_truth, name="download_ground_truth"),
     path("games/<int:pk>/delete/", views.delete_game, name="delete_game"),
+    path("games/<int:pk>/ball-labels/", views.ball_labels, name="ball_labels"),
+    path("games/<int:pk>/ball-labels/frame.jpg", views.ball_frame_jpg, name="ball_frame_jpg"),
+    path("games/<int:pk>/ball-labels/save/", views.save_ball_label, name="save_ball_label"),
+    path("games/<int:pk>/ball-labels/<int:label_id>/delete/", views.delete_ball_label, name="delete_ball_label"),
+    path("games/<int:pk>/ball-labels/approve/", views.approve_training_data, name="approve_training_data"),
     path("games/<int:pk>/video/", views.source_video, name="source_video"),
     path("games/<int:pk>/exports/<int:export_id>/download/", views.export_video, name="export_video"),
 ]

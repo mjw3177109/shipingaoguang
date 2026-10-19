@@ -37,6 +37,7 @@
 <form action="{% url 'import_proposals' game.pk %}" method="post" enctype="multipart/form-data" class="stack">{% csrf_token %}
 <label>候选 JSON<input type="file" name="proposals" accept=".json,application/json" required></label>
 <button class="secondary" type="submit">导入候选片段</button></form></section></div>
+<section class="panel"><h2>④ 篮球位置框标注 / 专项模型训练数据</h2><p class="muted small">逐帧标记篮球外接框，或明确标记“本帧无球”。这些数据独立于高光候选，只在人工确认素材权利后用于训练。</p><a class="inline-link" href="{% url 'ball_labels' game.pk %}">打开篮球框标注工作台 →</a></section>
 <section class="panel" id="truth-labeling">
 <div class="section-bar"><div><h2>③ 实测标注：人工投篮尝试时间点（{{ annotations|length }}）</h2>
 <p class="muted small">建立真实评测基准：看完整场比赛，对每次投篮尝试按【取当前播放秒数】并标记，投进或投丢都要标。无需填写球员姓名。</p></div>

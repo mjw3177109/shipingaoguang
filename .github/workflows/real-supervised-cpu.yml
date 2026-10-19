@@ -1,0 +1,76 @@
+name: Real Human Box Tiny CPU Specialist Trial
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/basketball-specialist-data-v03]
+    paths:
+      - "benchmarks/real_ball_boxes_pilot.json"
+      - "scripts/real_ball_box_pilot.py"
+      - ".github/workflows/real-supervised-cpu.yml"
+      - "highlights/vision/train_specialist.py"
+      - "highlights/vision/cpu_pretrained.py"
+jobs:
+  real-human-box-trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FFmpeg and CPU PyTorch
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          python -m pip install pillow -r requirements-cpu.txt
+      - name: Fetch two licensed, real basketball clips
+        run: |
+          mkdir -p /tmp/basketball-real-pilot
+          curl -fL --retry 3 --max-time 110 \
+            "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" \
+            -o /tmp/basketball-real-pilot/passing.webm
+          curl -fL --retry 3 --max-time 110 \
+            "https://upload.wikimedia.org/wikipedia/commons/f/f1/VCB_FCB%284%29.webm" \
+            -o /tmp/basketball-real-pilot/free_throw.webm
+          ffprobe -v error -show_entries format=duration,size -of json /tmp/basketball-real-pilot/free_throw.webm
+      - name: Build 4 human-reviewed real basketball bbox frames, game-disjoint
+        run: |
+          python -m scripts.real_ball_box_pilot \
+            --annotations benchmarks/real_ball_boxes_pilot.json \
+            --videos /tmp/basketball-real-pilot \
+            --out /tmp/basketball-real-dataset
+      - name: Actually fine-tune CPU model with real footage (not performance claim)
+        run: |
+          python -m highlights.vision.train_specialist \
+            --dataset /tmp/basketball-real-dataset \
+            --out /tmp/basketball-specialist-real-pilot.pt \
+            --epochs 1 --max-steps 2 --device cpu
+      - name: Load real-trained specialist checkpoint and infer on real free throw
+        run: |
+          python -m highlights.vision.cpu_pretrained \
+            --checkpoint /tmp/basketball-specialist-real-pilot.pt \
+            --allow-research-checkpoint \
+            --video /tmp/basketball-real-pilot/free_throw.webm \
+            --out /tmp/basketball-specialist-real-proposals.json \
+            --arch mobile320 --interval 0.8 --max-frames 12 --threshold 0.20
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('/tmp/basketball-specialist-real-pilot.report.json').read_text())
+          proposal=json.loads(Path('/tmp/basketball-specialist-real-proposals.json').read_text())
+          assert report['train_games'] == 1 and report['val_games'] == 1
+          assert report['train_images'] == 2 and report['val_images'] == 2
+          assert proposal['analysis']['checkpoint_used'] is True
+          print('Actual human-box tiny dataset train/test pipeline succeeded. Candidate clips:', len(proposal['candidates']))
+          print('WARNING: FOUR sample frames. Never quote validation F1 as production quality.')
+          PY
+      - name: Artifact reports only, no original media or tiny unfit weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-four-frame-cpu-training-pilot-report
+          path: |
+            /tmp/basketball-specialist-real-pilot.report.json
+            /tmp/basketball-specialist-real-proposals.json
+          retention-days: 7
+          if-no-files-found: warn
