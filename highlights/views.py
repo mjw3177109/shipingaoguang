@@ -12,7 +12,7 @@ from django.http import FileResponse, Http404, HttpResponse, JsonResponse, Strea
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
-from .models import Candidate, Export, Game, Venue
+from .models import Candidate, Export, Game, Venue, ShotAnnotation
 from .services import MediaError, probe_duration
 from .vision.events import validate_hoops
 
@@ -92,8 +92,9 @@ def upload_game(request):
 def game_detail(request, pk):
     game = _game(request, pk)
     candidates = game.candidates.all()
+    annotations = game.shot_annotations.all()
     exports = game.exports.order_by("-created_at")[:20]
-    return render(request, "game.html", {"game": game, "candidates": candidates, "exports": exports})
+    return render(request, "game.html", {"game": game, "candidates": candidates, "exports": exports, "annotations": annotations})
 
 
 @login_required
@@ -258,6 +259,81 @@ def import_proposals(request, pk):
     except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         messages.error(request, f"候选 JSON 无效：{exc}")
     return redirect("game", pk=pk)
+
+
+@login_required
+@require_POST
+def add_shot_annotation(request, pk):
+    """Ground truth is a human-labeling operation, entirely separate from proposals."""
+    game = _game(request, pk)
+    try:
+        time_seconds = _float(request.POST.get("time_seconds"))
+        if not (math.isfinite(time_seconds) and
+                0 <= time_seconds <= game.duration_seconds):
+            raise ValueError("投篮时间必须位于视频范围内。")
+        if game.shot_annotations.count() >= 3000:
+            raise ValueError("一场比赛最多支持 3000 个投篮标注。")
+        if game.shot_annotations.filter(
+                time_seconds__gte=time_seconds - 0.4,
+                time_seconds__lte=time_seconds + 0.4).exists():
+            raise ValueError("该时刻附近已有投篮标注。")
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    else:
+        with transaction.atomic():
+            ShotAnnotation.objects.create(game=game, time_seconds=round(time_seconds, 3))
+            Game.objects.filter(pk=game.pk).update(annotations_complete=False)
+        messages.success(request, "已记录一条人工投篮尝试标注（不是进球命中）。")
+    return redirect("game", pk=pk)
+
+
+@login_required
+@require_POST
+def delete_shot_annotation(request, pk, annotation_id):
+    game = _game(request, pk)
+    annotation = get_object_or_404(ShotAnnotation, game=game, pk=annotation_id)
+    with transaction.atomic():
+        annotation.delete()
+        Game.objects.filter(pk=game.pk).update(annotations_complete=False)
+    messages.success(request, "投篮标注已删除，请重新确认标注完整性。")
+    return redirect("game", pk=pk)
+
+
+@login_required
+@require_POST
+def confirm_ground_truth(request, pk):
+    game = _game(request, pk)
+    # Explicit human attestation; any future edit resets this flag.
+    complete = request.POST.get("complete") == "yes"
+    game.annotations_complete = complete
+    game.save(update_fields=["annotations_complete"])
+    if complete:
+        messages.success(request, "已标记人工投篮尝试标注完整，可导出评估基准。")
+    else:
+        messages.success(request, "已撤销标注完整确认。")
+    return redirect("game", pk=pk)
+
+
+@login_required
+@require_GET
+def download_ground_truth(request, pk):
+    game = _game(request, pk)
+    if not game.annotations_complete:
+        return HttpResponse(
+            "必须先完整检查比赛，并在页面确认所有投篮尝试已标注。",
+            status=409, content_type="text/plain; charset=utf-8")
+    payload = {
+        "schema_version": 1,
+        "game_id": game.pk,
+        "video_duration_seconds": round(game.duration_seconds, 3),
+        "complete_within_scope": True,
+        "events": [{"type": "shot_attempt", "time_seconds": item.time_seconds}
+                   for item in game.shot_annotations.all()],
+    }
+    response = JsonResponse(payload, json_dumps_params={"ensure_ascii": False})
+    response["Content-Disposition"] = f'attachment; filename="game-{game.pk}-truth.json"'
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 @login_required

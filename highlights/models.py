@@ -79,3 +79,13 @@ class Export(models.Model):
 
     def __str__(self):
         return f"{self.game.title} - {self.player_label or '全场'}"
+
+
+class ShotAnnotation(models.Model):
+    """Independent human annotation of attempted shots; not AI output or score verdict."""
+    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="shot_annotations")
+    time_seconds = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["time_seconds", "id"]

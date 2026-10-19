@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "video_duration_seconds": 120,
+  "complete_within_scope": true,
+  "events": [
+    {"type": "shot_attempt", "time_seconds": 12},
+    {"type": "shot_attempt", "time_seconds": 36},
+    {"type": "shot_attempt", "time_seconds": 87}
+  ],
+  "_note": "Synthetic data for CI demonstration ONLY. Not a real basketball benchmark."
+}

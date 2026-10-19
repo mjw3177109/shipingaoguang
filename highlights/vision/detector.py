@@ -10,18 +10,22 @@ from .events import BallObservation, propose_shots, validate_hoops
 
 
 def scan_video(video_path, hoops, *, interval=1.5, max_frames=1800,
-               threshold=.35, device="auto", progress=200):
+               threshold=.20, device="auto", progress=200, model_name="mobile320",
+               include_observations=False, min_hits=2):
     # Main Django image is deliberately CPU-only and does not include torch.
     import cv2
     import torch
     from torchvision.models.detection import (
         fasterrcnn_resnet50_fpn, FasterRCNN_ResNet50_FPN_Weights,
+        fasterrcnn_mobilenet_v3_large_320_fpn, FasterRCNN_MobileNet_V3_Large_320_FPN_Weights,
     )
 
     hoops = validate_hoops(hoops)
     if not (.4 <= interval <= 10 and 1 <= max_frames <= 10000
             and .05 <= threshold <= .99):
         raise ValueError("采样间隔、帧数或阈值超出允许范围。")
+    if model_name not in ("mobile320", "resnet50"):
+        raise ValueError("Unsupported model_name")
     if device not in ("auto", "cuda", "cpu"):
         raise ValueError("device 必须是 auto、cuda 或 cpu。")
     use_cuda = torch.cuda.is_available() if device == "auto" else device == "cuda"
@@ -42,9 +46,13 @@ def scan_video(video_path, hoops, *, interval=1.5, max_frames=1800,
         scheduled = min(total_samples, max_frames)
         truncated = total_samples > max_frames
         started = time.monotonic()
-        weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
+        if model_name == "mobile320":
+            weights = FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
+            model = fasterrcnn_mobilenet_v3_large_320_fpn(weights=weights).to(device_name).eval()
+        else:
+            weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
+            model = fasterrcnn_resnet50_fpn(weights=weights).to(device_name).eval()
         sports_ball_id = weights.meta["categories"].index("sports ball")
-        model = fasterrcnn_resnet50_fpn(weights=weights).to(device_name).eval()
         preprocess = weights.transforms()
         observations = []
         processed = 0
@@ -76,24 +84,33 @@ def scan_video(video_path, hoops, *, interval=1.5, max_frames=1800,
                 ))
             if progress and (index + 1) % progress == 0:
                 print(f"scanned {index+1}/{scheduled} frames; observations={len(observations)}", flush=True)
-        return {
+        result = {
             "schema_version": 2,
             "video_duration_seconds": round(duration, 3),
             "analysis": {
                 "kind": "ball_near_hoop_candidate",
-                "model": "torchvision_fasterrcnn_resnet50_fpn_coco",
+                "model": f"torchvision_fasterrcnn_{model_name}_coco",
                 "device": device_name,
                 "sample_interval_seconds": interval,
                 "frames_scheduled": scheduled,
                 "frames_processed": processed,
                 "observations": len(observations),
+                "detector_min_confidence": threshold,
+                "min_hits": min_hits,
                 "incomplete_scan": truncated,
                 "analyzed_until_seconds": round(min(duration, scheduled * interval), 2),
                 "elapsed_seconds": round(time.monotonic() - started, 1),
                 "warning": "候选不是投篮命中识别结果；漏检和误报需要人工审核。",
             },
             "hoops": hoops,
-            "candidates": propose_shots(observations, hoops, duration),
+            "candidates": propose_shots(observations, hoops, duration, min_hits=min_hits),
         }
+        if include_observations:
+            result["sampled_observations"] = [
+                {"time": round(p.time, 3), "x": round(p.x, 5),
+                 "y": round(p.y, 5), "confidence": round(p.confidence, 5)}
+                for p in observations
+            ]
+        return result
     finally:
         capture.release()

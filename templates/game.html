@@ -36,6 +36,31 @@
 <form action="{% url 'import_proposals' game.pk %}" method="post" enctype="multipart/form-data" class="stack">{% csrf_token %}
 <label>候选 JSON<input type="file" name="proposals" accept=".json,application/json" required></label>
 <button class="secondary" type="submit">导入候选片段</button></form></section></div>
+<section class="panel" id="truth-labeling">
+<div class="section-bar"><div><h2>③ 实测标注：人工投篮尝试时间点（{{ annotations|length }}）</h2>
+<p class="muted small">建立真实评测基准：看完整场比赛，对每次投篮尝试按【取当前播放秒数】并标记，投进或投丢都要标。无需填写球员姓名。</p></div>
+{% if game.annotations_complete %}<span class="tag">已确认完整</span>{% else %}<span class="tag">未确认完整</span>{% endif %}
+</div>
+<div class="columns">
+<div>
+<form class="stack" method="post" action="{% url 'add_shot_annotation' game.pk %}">{% csrf_token %}
+<label>投篮发生秒数<input id="truth-seconds" name="time_seconds" type="number" min="0" max="{{ game.duration_seconds }}" step=".01" required></label>
+<div class="actions"><button type="button" class="secondary" onclick="document.getElementById('truth-seconds').value=document.getElementById('player').currentTime.toFixed(2)">取当前视频时间</button>
+<button type="submit" class="primary">+ 标记投篮尝试</button></div>
+</form>
+</div>
+<div>
+<form class="stack" method="post" action="{% url 'confirm_ground_truth' game.pk %}">{% csrf_token %}
+<p class="hint">只有独立人工看完录像、标完所有投篮后，才能确认标注完整。每次增删时间点都会自动取消完整确认。</p>
+<div class="actions"><button type="submit" name="complete" value="yes" class="approved" onclick="return confirm('你确定已经完整检查本场比赛每一次投篮尝试吗？')">确认全场标注完整</button>
+<button type="submit" name="complete" value="no" class="ghost">撤销确认</button></div></form>
+{% if game.annotations_complete %}<a class="inline-link" href="{% url 'download_ground_truth' game.pk %}">下载 ground_truth.json ↓</a>{% endif %}
+</div></div>
+<div class="truth-tags">
+{% for annotation in annotations %}<div class="truth-tag"><button class="ghost jump" type="button" onclick="seekVideo({{ annotation.time_seconds }})">▶ {{ annotation.time_seconds|floatformat:1 }} 秒</button>
+<form method="post" action="{% url 'delete_shot_annotation' game.pk annotation.pk %}">{% csrf_token %}<button class="ghost" type="submit" title="删除">×</button></form></div>
+{% empty %}<p class="muted small">目前没有人工投篮标注。没有投篮的完整录像也可以确认“0 次投篮”并评估误报。</p>{% endfor %}
+</div></section>
 <section class="panel"><div class="section-bar"><div><h2>候选片段（{{ candidates|length }}）</h2>
 <p class="muted small">音量峰值 ≠ 投篮命中。老师/运营人员需要确认镜头并分配球员。</p></div></div>
 {% for clip in candidates %}
