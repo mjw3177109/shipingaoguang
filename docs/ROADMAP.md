@@ -36,3 +36,9 @@
 - 竖屏 9:16、BGM 著作权处理、封面、实时进度
 - 球员跟踪和球衣号码辅助匹配（所有人脸/身份归因人审）
 - 角色与场馆成员、分片上传 / 对象存储、计费、订单、灾备
+
+## Kaggle 视觉实验 Notebook
+- Notebook: `notebooks/kaggle_ball_probe.ipynb`，启用 Kaggle Accelerator=GPU，设置带授权视频的路径。
+- 此 Notebook 检测的是 COCO `sports ball` 出现的时间段，并不判断进球；上传输出 `candidates.json` 至某场比赛的“导入候选片段”。
+- YOLO 示例权重来自 Ultralytics，默认许可并不等于允许直接闭源商业集成；需审查 AGPL/企业授权，生产应换为获商业授权的模型。
+- 免费 GPU 的额度、Internet 开关与包下载随平台账号变动，不能保证每次都可启动。

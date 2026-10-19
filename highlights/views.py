@@ -1,3 +1,5 @@
+import json
+import math
 import re
 from pathlib import Path
 
@@ -5,7 +7,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.files.uploadedfile import UploadedFile
-from django.db.models import Q
+from django.db import transaction
 from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
@@ -160,6 +162,53 @@ def queue_export(request, pk):
     else:
         Export.objects.create(game=game, player_label=label)
         messages.success(request, "渲染任务已排队，完成后将出现在下载列表。")
+    return redirect("game", pk=pk)
+
+
+@login_required
+@require_POST
+def import_proposals(request, pk):
+    """Import GPU *proposals*, not confirmed scores; every new clip remains pending."""
+    game = _game(request, pk)
+    incoming = request.FILES.get("proposals")
+    if not incoming or incoming.size > 200_000 or incoming.size <= 0:
+        messages.error(request, "请选择小于 200KB 的候选 JSON 文件。")
+        return redirect("game", pk=pk)
+    try:
+        payload = json.loads(incoming.read().decode("utf-8-sig"))
+        items = payload["candidates"]
+        if not isinstance(items, list) or not 1 <= len(items) <= 100:
+            raise ValueError("JSON candidates 必须包含 1 到 100 个片段。")
+        new_clips = []
+        existing = {
+            (src, round(start, 3), round(end, 3))
+            for src, start, end in Candidate.objects.filter(game=game).values_list(
+                "source", "start_seconds", "end_seconds")
+        }
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("候选片段格式不正确。")
+            start, end = _times(game, item.get("start_seconds"), item.get("end_seconds"))
+            source = item.get("source", "visual_ball_presence")
+            if source not in ("visual_ball_presence", "model_proposal"):
+                raise ValueError("不支持该候选来源类型。")
+            score = float(item.get("score", 0))
+            if not math.isfinite(score) or not 0 <= score <= 1:
+                raise ValueError("score 必须处于 0 到 1 之间。")
+            key = (source, start, end)
+            if key in existing:
+                continue
+            existing.add(key)
+            new_clips.append(Candidate(
+                game=game, start_seconds=start, end_seconds=end, source=source,
+                energy_score=score, note=str(item.get("note", ""))[:240],
+                review="pending",
+            ))
+        with transaction.atomic():
+            Candidate.objects.bulk_create(new_clips)
+        messages.success(request, f"已导入 {len(new_clips)} 条待审视觉候选。")
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        messages.error(request, f"候选 JSON 无效：{exc}")
     return redirect("game", pk=pk)
 
 

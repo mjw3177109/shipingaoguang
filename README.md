@@ -68,3 +68,7 @@ Kaggle/Colab 免费 GPU 用于研发试验，不能保证长期可用，也不�
 - 当前样例本地存储，不是高可用商用部署。
 
 许可证：源代码暂未授予第三方使用许可；依赖遵循各自许可证。
+
+## Kaggle 免费 GPU 视觉实验
+
+`notebooks/kaggle_ball_probe.ipynb` 提供不依赖服务端常驻 GPU 的试验：Kaggle Notebook 设置 GPU，加上有授权比赛视频的数据集，按 Notebook 修改 `VIDEO_PATH`，得到 `candidates.json`。回到对应比赛页用“导入候选片段”导入，然后人工复核。注意：COCO 运动球检测不等于进球判定，这只是视觉候选接口的技术验证。Ultralytics 模型商用需要额外确认许可证。

@@ -61,6 +61,24 @@ class VideoFlowTests(TestCase):
         self.client.post(reverse("queue_export", args=[game.pk]), {"player_label": "7号"})
         self.assertEqual(Export.objects.filter(game=game, state="queued").count(), 1)
 
+    def test_import_gpu_proposals_pending_and_tenant_safe(self):
+        import json
+        payload = json.dumps({"candidates": [
+            {"start_seconds": 10, "end_seconds": 19,
+             "source": "visual_ball_presence", "score": .75},
+        ]}).encode()
+        self.client.force_login(self.other)
+        denied = self.client.post(reverse("import_proposals", args=[self.game.pk]),
+            {"proposals": SimpleUploadedFile("proposals.json", payload)})
+        self.assertEqual(denied.status_code, 404)
+        self.client.force_login(self.owner)
+        url = reverse("import_proposals", args=[self.game.pk])
+        for _ in range(2):
+            self.assertEqual(self.client.post(url, {"proposals":
+                SimpleUploadedFile("proposals.json", payload)}).status_code, 302)
+        self.assertEqual(self.game.candidates.count(), 1)
+        self.assertEqual(self.game.candidates.first().review, "pending")
+
     def test_bad_clip_times_not_created(self):
         self.client.force_login(self.owner)
         response = self.client.post(reverse("add_candidate", args=[self.game.pk]),
