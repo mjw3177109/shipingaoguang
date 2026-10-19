@@ -54,3 +54,9 @@ cat /tmp/approved-ball-labels/quality_report.json
 - 只有 4 张样本或只测短片就宣称商用；
 - 为了“0 误报”把阈值调得过高，最终什么都检测不到；
 - 使用 GitHub Actions 免费 CPU 做长期无人值守收费产品推理。它是开发 CI 环境，不是正式生产算力。
+
+## 本阶段实际验收（2026-10-19）
+
+[真实两段篮球比赛 CPU 视频抽帧 run #39224595472](https://github.com/mjw3177109/shipingaoguang/actions/runs/39224595472) 成功：传球视频解码 8 帧、输出 8 个待审核建议；罚球视频解码 8 帧、输出 8 个待审核建议。GitHub Artifacts 仅保存 JSON，不包含第三方原始录像。
+
+[后端 CI #39224595448](https://github.com/mjw3177109/shipingaoguang/actions/runs/39224595448) 完整通过 Django / 数据库 / 测试与 FFmpeg 回归。没有进行“新模型训练质量提升”测试，因为尚无新增经真人审核的篮球/无球标注。这一步是采集工具升级，不是模型精度升级。

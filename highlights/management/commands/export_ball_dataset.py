@@ -35,7 +35,7 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
         raise ValueError("Output directory must be empty to prevent stale samples or data leakage")
     root.mkdir(parents=True, exist_ok=True)
     games=sorted(games,key=lambda g: hashlib.sha256(f"basketcut-game-{g.pk}".encode()).hexdigest())
-    val_count=max(1,min(len(games)-1, math.ceil(len(games)*val_ratio)))
+    val_count=max(2 if len(games)>=4 else 1, min(len(games)-1, math.ceil(len(games)*val_ratio)))
     val_ids={g.pk for g in games[:val_count]}
     samples=[]
     games_info=[]

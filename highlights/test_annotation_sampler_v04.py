@@ -49,6 +49,17 @@ class CpuSamplerUnitTests(TestCase):
             self.assertTrue(all(r["reason"] in REASONS for r in result["suggestions"]))
             self.assertFalse(any("ball_absent" in r for r in result["suggestions"]))
 
+    def test_quality_check_passes_balanced_four_game_coverage_only(self):
+        rows=[
+            {"id":1,"split":"train","positive":40,"negative":12},
+            {"id":2,"split":"train","positive":40,"negative":12},
+            {"id":3,"split":"val","positive":40,"negative":12},
+            {"id":4,"split":"val","positive":40,"negative":12},
+        ]
+        report=audit_games(rows)
+        self.assertTrue(report["basic_data_coverage_ready"])
+        self.assertTrue(all(report["checks"].values()))
+
     def test_data_quality_flags_tiny_positive_only_data_as_unready(self):
         sample=[{"id":1,"split":"train","positive":2,"negative":0},
                 {"id":2,"split":"val","positive":2,"negative":0}]
