@@ -109,9 +109,21 @@ def compare_dataset(dataset, baseline_path, challenger_path, *,
     splits={str(x["id"]):x["split"] for x in games}
     if set(splits.values())!={"train","val","test"}:
         raise ValueError("Missing independent train/val/test split")
+    sample_stats={game_id:{"positive":0,"negative":0} for game_id in splits}
     for row in rows:
-        if row["split"] != splits.get(str(row["game_id"])):
+        owner=str(row["game_id"])
+        if row["split"] != splits.get(owner):
             raise ValueError("Frame crosses game split boundary")
+        if type(row.get("ball_absent")) is not bool:
+            raise ValueError("Frame ball_absent must be an explicit boolean")
+        sample_stats[owner]["negative" if row["ball_absent"] else "positive"]+=1
+    for game in games:
+        stats=sample_stats[str(game["id"])]
+        if (stats["positive"]!=game["positive"] or
+                stats["negative"]!=game["negative"] or
+                stats["positive"]+stats["negative"]!=game.get("sample_count",
+                     stats["positive"]+stats["negative"])):
+            raise ValueError("Manifest game counts do not match actual labeled samples")
     heldout=[r for r in rows if r["split"]=="test"]
     if not heldout:
         raise ValueError("No sealed test frames")
@@ -136,6 +148,12 @@ def compare_dataset(dataset, baseline_path, challenger_path, *,
     f1_gain=round((c["f1"] or 0) -(b["f1"] or 0),4)
     checks={
         "non_synthetic_real_data": manifest.get("synthetic") is not True,
+        "all_games_have_recorded_training_rights": all(
+            isinstance(g.get("training_rights"),str) and
+            len(g["training_rights"].strip())>=12 for g in games),
+        "predictions_not_marked_synthetic": not (
+            json.loads(Path(baseline_path).read_text()).get("synthetic") is True or
+            json.loads(Path(challenger_path).read_text()).get("synthetic") is True),
         "data_ready":audit["data_coverage_ready"],
         "no_cross_split_identical_image_hashes":duplicate_cross_split==0,
         "enough_precision":c["precision"] is not None and c["precision"]>=min_precision,

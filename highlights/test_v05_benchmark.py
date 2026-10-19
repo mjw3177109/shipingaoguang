@@ -63,6 +63,22 @@ class CompareModelsTests(SimpleTestCase):
         self.assertFalse(report["production_release"])
         self.assertEqual(report["evaluation_scope"],"SEALED_TEST_ONLY")
 
+    def test_manifest_forged_game_counts_rejected(self):
+        manifest=json.loads((self.root/"manifest.json").read_text())
+        manifest["games"][0]["positive"]+=100
+        (self.root/"manifest.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError,"do not match actual"):
+            self.evaluate()
+
+    def test_predictions_marked_synthetic_are_not_eligible(self):
+        manifest=json.loads((self.root/"manifest.json").read_text())
+        manifest["synthetic"]=False
+        (self.root/"manifest.json").write_text(json.dumps(manifest))
+        result=self.evaluate()
+        self.assertTrue(result["checks"]["non_synthetic_real_data"])
+        self.assertFalse(result["checks"]["predictions_not_marked_synthetic"])
+        self.assertFalse(result["eligible_for_independent_human_review"])
+
     def test_missing_predictions_are_not_silently_treated_as_empty(self):
         x=json.loads(self.baseline.read_text())
         x["predictions"].pop(next(iter(x["predictions"])))
