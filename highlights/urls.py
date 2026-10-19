@@ -23,6 +23,7 @@ urlpatterns = [
     path("games/<int:pk>/ball-labels/save/", views.save_ball_label, name="save_ball_label"),
     path("games/<int:pk>/ball-labels/<int:label_id>/delete/", views.delete_ball_label, name="delete_ball_label"),
     path("games/<int:pk>/ball-labels/approve/", views.approve_training_data, name="approve_training_data"),
+    path("games/<int:pk>/ball-labels/suggest/", views.queue_ball_sampling, name="queue_ball_sampling"),
     path("games/<int:pk>/video/", views.source_video, name="source_video"),
     path("games/<int:pk>/exports/<int:export_id>/download/", views.export_video, name="export_video"),
 ]

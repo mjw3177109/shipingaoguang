@@ -15,6 +15,7 @@ from django.core.management.base import BaseCommand, CommandError
 from highlights.ball_labels import validate_ball_label
 from highlights.ball_views import extract_frame_jpeg
 from highlights.models import Game
+from highlights.vision.data_quality import audit_games
 
 
 def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=200):
@@ -34,7 +35,7 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
         raise ValueError("Output directory must be empty to prevent stale samples or data leakage")
     root.mkdir(parents=True, exist_ok=True)
     games=sorted(games,key=lambda g: hashlib.sha256(f"basketcut-game-{g.pk}".encode()).hexdigest())
-    val_count=max(1,min(len(games)-1, math.ceil(len(games)*val_ratio)))
+    val_count=max(2 if len(games)>=4 else 1, min(len(games)-1, math.ceil(len(games)*val_ratio)))
     val_ids={g.pk for g in games[:val_count]}
     samples=[]
     games_info=[]
@@ -42,6 +43,8 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
         split="val" if game.pk in val_ids else "train"
         labels=list(game.ball_frames.all()[:max_frames])
         games_info.append({"id":game.pk,"split":split,"sample_count":len(labels),
+                           "positive":sum(not x.ball_absent for x in labels),
+                           "negative":sum(x.ball_absent for x in labels),
                            "training_rights":game.ball_training_rights})
         image_dir=root/"images"/split
         label_dir=root/"labels"/split
@@ -71,11 +74,14 @@ def build_dataset(owner_id, directory, game_ids=None, val_ratio=.25, max_frames=
         raise ValueError("Training split contains no positive basketball examples")
     if not any(x["split"]=="val" for x in samples):
         raise ValueError("Validation split is empty")
+    audit = audit_games(games_info)
     manifest={"schema_version":1,"classes":["basketball"],"owner_id":str(owner_id),
+              "quality_audit":audit,
               "method":"game-disjoint deterministic SHA256 split",
               "warning":"Annotations must be human verified; no claimed accuracy or automatic score.",
               "games":games_info,"samples":samples}
     (root/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding="utf-8")
+    (root/"quality_report.json").write_text(json.dumps(audit,ensure_ascii=False,indent=2),encoding="utf-8")
     (root/"data.yaml").write_text(
         f"path: {root.as_posix()}\ntrain: images/train\nval: images/val\nnames:\n  0: basketball\n",
         encoding="utf-8")

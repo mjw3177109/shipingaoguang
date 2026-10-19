@@ -417,4 +417,4 @@ def export_video(request, pk, export_id):
 
 # V0.3 independent owner-only video frame labeling UI
 from .ball_views import (ball_labels, ball_frame_jpg, save_ball_label,
-                         delete_ball_label, approve_training_data)
+                         delete_ball_label, approve_training_data, queue_ball_sampling)

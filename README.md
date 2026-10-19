@@ -133,3 +133,11 @@ python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --o
 [完整标注、CPU 训练和评测指南](docs/BASKETBALL_SPECIALIST_V03.md) · [真实两段比赛、四个目视审核球框的小规模 CPU 训练实验](docs/REAL_4_FRAME_PILOT.md)。
 
 **实际结果提醒**：仅四个真实球框的试验已经验证训练及推理工程链路，但两个留出框均未命中，发生大量误检，因此此专项 checkpoint 明确被拦截，不可以部署到篮球馆生产环境。下一阶段须扩充标注数据并进行独立盲测。
+
+## V0.4：CPU 标注帧候选与难负样本采集
+
+- 在球框标注工作台点击 **生成 24 个以内待审帧（CPU）**；由现有 Django Worker 执行，后台采样最多 96 帧，数据库只保存建议时间戳和理由，不自动确认篮球存在/不存在。
+- 按橙色疑似物体、运动画面和普通背景分类推荐**需要人工审核的帧**，帮助找到橙色球衣、看台等误检干扰。标注并保存后，该帧建议自动从列表消失。
+- `python manage.py audit_ball_labels --owner-id 1` 快速检查训练授权和已标注的正例/明确无球负例数量。
+- `export_ball_dataset` 在原 YOLO 数据文件旁增加 `quality_report.json`，按整场比赛拆分后验证训练/验证均含正负样本及数量门槛。门槛通过**只意味着覆盖数量达到基本要求**，绝不等于模型精度通过。
+- <https://github.com/mjw3177109/shipingaoguang/blob/main/docs/V04_CPU_ANNOTATION_LOOP.md> 中有完整操作、真实视频实验和约束。
