@@ -1,0 +1,14 @@
+{% load static %}<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}BasketCut AI{% endblock %}</title>
+<link rel="stylesheet" href="{% static 'style.css' %}">
+</head><body>
+<header class="topbar"><a href="{% url 'dashboard' %}" class="logo">🏀 BasketCut <small>AI</small></a>
+<div class="top-right"><span>篮球高光工作台 · V0.1</span>{% if user.is_authenticated %}<span>{{ user.username }}</span>
+<form action="{% url 'logout' %}" method="post">{% csrf_token %}<button type="submit" class="ghost">退出</button></form>{% endif %}</div></header>
+<main class="container">
+{% if messages %}<div class="alerts">{% for message in messages %}<div class="alert {% if message.tags == 'error' %}danger{% endif %}">{{ message }}</div>{% endfor %}</div>{% endif %}
+{% block body %}{% endblock %}
+</main><footer class="footer">BasketCut V0.1 · 仅提供音量峰值候选，不自动判定进球或球员身份 · 请取得录像及传播授权</footer>
+</body></html>
