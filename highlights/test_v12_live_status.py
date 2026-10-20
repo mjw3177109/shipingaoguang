@@ -68,7 +68,7 @@ class LiveTaskStatusTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="upload-form"')
         self.assertContains(response, 'id="upload-progress"')
-        self.assertContains(response, "upload-progress.js")
+        self.assertContains(response, "/static/upload-progress.")
 
     def test_game_page_polls_without_replacing_video_element(self):
         self.client.force_login(self.owner)
@@ -76,5 +76,5 @@ class LiveTaskStatusTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="task-live-status"')
         self.assertContains(response, 'id="export-table-body"')
-        self.assertContains(response, "task-status.js")
+        self.assertContains(response, "/static/task-status.")
         self.assertContains(response, 'id="player"')
