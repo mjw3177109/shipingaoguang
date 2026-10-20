@@ -93,6 +93,7 @@ class Export(models.Model):
     worker_started_at = models.DateTimeField(null=True, blank=True)
     clips_done = models.PositiveSmallIntegerField(default=0)
     clips_total = models.PositiveSmallIntegerField(default=0)
+    audio_fallback_used = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -28,6 +28,8 @@ class Migration(migrations.Migration):
                             field=models.PositiveSmallIntegerField(default=0)),
         migrations.AddField(model_name="export",name="clips_total",
                             field=models.PositiveSmallIntegerField(default=0)),
+        migrations.AddField(model_name="export",name="audio_fallback_used",
+                            field=models.BooleanField(default=False)),
         migrations.AddField(model_name="export",name="retry_of",
                             field=models.ForeignKey(to="highlights.export",
                                 blank=True,null=True,

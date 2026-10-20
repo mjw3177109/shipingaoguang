@@ -93,7 +93,8 @@
 </section>
 <section class="panel"><div class="section-bar"><h2>导出记录</h2><button class="ghost" onclick="location.reload()" type="button">刷新任务状态</button></div>
 <div class="table-scroll"><table><thead><tr><th>范围</th><th>状态 / 进度</th><th>创建时间</th><th>结果 / 操作</th></tr></thead><tbody>
-{% for item in exports %}<tr><td>{{ item.player_label|default:"全场集锦" }}</td><td>{{ item.get_state_display }} {% if item.clips_total %}<span class="muted small">· {{ item.clips_done }}/{{ item.clips_total }} 段</span>{% endif %}{% if item.attempt > 1 %}<span class="muted small">· 第 {{ item.attempt }} 次尝试</span>{% endif %}</td>
+{% for item in exports %}<tr><td>{{ item.player_label|default:"全场集锦" }}</td><td>{{ item.get_state_display }} {% if item.clips_total %}<span class="muted small">· {{ item.clips_done }}/{{ item.clips_total }} 段</span>{% endif %}{% if item.attempt > 1 %}<span class="muted small">· 第 {{ item.attempt }} 次尝试</span>{% endif %}
+{% if item.audio_fallback_used %}<span class="muted small">· 原声缺失已补静音</span>{% endif %}</td>
 <td>{{ item.created_at|date:"m-d H:i" }}</td><td>
 {% if item.state == 'done' %}<a class="inline-link" href="{% url 'export_video' game.pk item.pk %}">下载 MP4 ↓</a>
 {% elif item.state == 'failed' %}<span class="error-text">{{ item.error }}</span>

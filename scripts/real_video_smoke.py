@@ -131,6 +131,7 @@ def main():
     report = {
         "output_has_audio": True,
         "output_audio_mode": job.audio_mode,
+        "audio_fallback_used": job.audio_fallback_used,
         "immutable_export_plan_verified": True,
         "export_plan_sha256": job.plan_sha256,
         "queued_duplicate_suppressed": True,

@@ -216,3 +216,4 @@ class ImmutableReviewedExportTests(TestCase):
                 self.assertEqual(job.state,"done")
                 self.assertEqual(job.clips_done,1)
                 self.assertTrue(has_audio_stream(job.video.path))
+                self.assertEqual(job.audio_fallback_used, not with_audio)

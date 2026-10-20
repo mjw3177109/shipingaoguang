@@ -147,6 +147,9 @@ def render_export(job):
     if audio_mode not in ("silent", "original"):
         raise MediaError("音频输出配置无效。")
     input_has_audio = has_audio_stream(job.game.video.path) if audio_mode == "original" else False
+    if audio_mode == "original" and not input_has_audio:
+        job.audio_fallback_used = True
+        job.save(update_fields=["audio_fallback_used"])
     with tempfile.TemporaryDirectory(prefix="basketcut-") as folder:
         root = Path(folder)
         parts = []
@@ -180,6 +183,27 @@ def render_export(job):
             else:
                 command += ["-an"]
             _run_ffmpeg([*command, str(file)])
+            if audio_mode == "original" and not has_audio_stream(file):
+                # Odd recordings sometimes advertise an audio stream but yield
+                # no packets inside the selected timespan. Re-encode that part
+                # using an explicit silent source before concatenating.
+                silence_cmd = [
+                    "-ss", f"{clip.start_seconds:.3f}", "-i", job.game.video.path,
+                    "-f", "lavfi", "-i",
+                    "anullsrc=channel_layout=stereo:sample_rate=48000",
+                    "-t", f"{clip.end_seconds - clip.start_seconds:.3f}",
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
+                           "pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000",
+                    "-ac", "2", "-b:a", "128k", str(file),
+                ]
+                _run_ffmpeg(silence_cmd)
+                job.audio_fallback_used = True
+                job.save(update_fields=["audio_fallback_used"])
+                if not has_audio_stream(file):
+                    raise MediaError("片段缺失音轨且静音回退失败。")
             parts.append(file)
             job.clips_done = index + 1
             job.save(update_fields=["clips_done"])
@@ -190,6 +214,23 @@ def render_export(job):
             "-f", "concat", "-safe", "0", "-i", str(concat), "-c", "copy",
             "-movflags", "+faststart", str(result),
         ])
+        if audio_mode == "original" and not has_audio_stream(result):
+            # Last-resort guard if the concat muxer dropped all audio streams.
+            # This is SILENCE, explicitly flagged; never claim source retained.
+            repaired = root / "output_with_silence.mp4"
+            _run_ffmpeg([
+                "-i", str(result), "-f", "lavfi", "-i",
+                "anullsrc=channel_layout=stereo:sample_rate=48000",
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-c:v", "copy", "-c:a", "aac", "-ar", "48000",
+                "-ac", "2", "-b:a", "128k", "-shortest",
+                "-movflags", "+faststart", str(repaired),
+            ])
+            result = repaired
+            job.audio_fallback_used = True
+            job.save(update_fields=["audio_fallback_used"])
+            if not has_audio_stream(result):
+                raise MediaError("导出结果音轨回退失败。")
         with result.open("rb") as stream:
             job.video.save("highlight.mp4", File(stream), save=False)
         job.state = "done"
