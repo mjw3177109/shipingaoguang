@@ -1,0 +1,94 @@
+name: BasketCut V1.3 Production Preflight and Real Media Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "highlights/management/commands/diagnose.py"
+      - "highlights/test_v13_diagnostics.py"
+      - "scripts/v13_*.py"
+      - ".github/workflows/v13-production-acceptance.yml"
+      - "docs/V13_PRODUCTION_ACCEPTANCE.md"
+  push:
+    branches: [main]
+    paths:
+      - "highlights/management/commands/diagnose.py"
+      - "highlights/test_v13_diagnostics.py"
+      - "scripts/v13_*.py"
+      - ".github/workflows/v13-production-acceptance.yml"
+
+jobs:
+  preflight-real-media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "v13-ci-test-only-not-for-production"
+      MEDIA_MIN_FREE_BYTES: "0"
+      MAX_UPLOAD_BYTES: "536870912"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install runtime and CPU packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Django checks and V1.3 diagnostic regression
+        run: |
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test highlights.test_v13_diagnostics --verbosity 2
+      - name: Strict preflight with live one-shot Worker heartbeat
+        run: |
+          mkdir -p media
+          python manage.py runworker --once
+          python manage.py diagnose --json --strict > /tmp/diagnostics.json
+          python manage.py workerstatus --json --check-worker
+      - name: Retrieve licensed public basketball footage
+        run: |
+          mkdir -p /tmp/basketcut-v13
+          curl -fL --retry 3 --connect-timeout 20 --max-time 120 \
+            "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" \
+            -o /tmp/basketcut-v13/Basketpass.webm
+          test "$(stat -c%s /tmp/basketcut-v13/Basketpass.webm)" -gt 100000
+      - name: Make 75s repeated-content stress input
+        run: |
+          python scripts/v13_make_fixture.py \
+            --source /tmp/basketcut-v13/Basketpass.webm \
+            --out /tmp/basketcut-v13/fixture.mp4 \
+            --seconds 75 \
+            --source-url "https://commons.wikimedia.org/wiki/File:Basketpass.webm" \
+            --license "CC0 1.0 - Benoît Prieur"
+      - name: Real Django upload + CPU analysis + Worker + FFmpeg export
+        run: |
+          python scripts/real_video_smoke.py \
+            --video /tmp/basketcut-v13/fixture.mp4 \
+            --out /tmp/basketcut-v13 \
+            --source-url "https://commons.wikimedia.org/wiki/File:Basketpass.webm" \
+            --license "CC0 1.0 - Benoît Prieur"
+      - name: Strict audit and machine-readable acceptance report
+        run: |
+          cp /tmp/diagnostics.json /tmp/basketcut-v13/diagnostics.json
+          python scripts/v13_verify_acceptance.py \
+            --out /tmp/basketcut-v13 \
+            --fixture /tmp/basketcut-v13/fixture.mp4
+      - name: Upload evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v13-production-preflight-real-media-audit
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            /tmp/diagnostics.json
+            /tmp/basketcut-v13/fixture_manifest.json
+            /tmp/basketcut-v13/diagnostics.json
+            /tmp/basketcut-v13/report.json
+            /tmp/basketcut-v13/edit_list.json
+            /tmp/basketcut-v13/acceptance_report.json
+            /tmp/basketcut-v13/preview.jpg
+            /tmp/basketcut-v13/highlight.mp4
