@@ -1,6 +1,6 @@
 {% extends 'base.html' %}{% block body %}
 <div class="heading"><div><div class="eyebrow">OVERVIEW / 工作台</div><h1>赛事管理</h1><p class="muted">上传比赛 · CPU 免费候选 · 人工审核 · 固定剪辑清单 · 导出 MP4</p></div>
-<div class="pill">V1.0 人工审核剪辑版 / CPU 优先</div></div>
+<div class="pill">V1.2 实时任务监控 / CPU 优先</div></div>
 <div class="columns">
 <section class="panel"><h2>① 新建球馆</h2><p class="muted">不同账号之间默认隔离；目前一个账号可创建多个球馆。</p>
 <form method="post" action="{% url 'create_venue' %}" class="stack">{% csrf_token %}

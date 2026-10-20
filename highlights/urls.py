@@ -8,6 +8,7 @@ urlpatterns = [
     path("venues/new/", views.create_venue, name="create_venue"),
     path("games/upload/", views.upload_game, name="upload_game"),
     path("games/<int:pk>/", views.game_detail, name="game"),
+    path("games/<int:pk>/tasks/status.json", views.task_status, name="task_status"),
     path("games/<int:pk>/analyze/", views.queue_analysis, name="queue_analysis"),
     path("games/<int:pk>/clips/new/", views.add_candidate, name="add_candidate"),
     path("games/<int:pk>/clips/<int:candidate_id>/review/", views.review_candidate, name="review_candidate"),
