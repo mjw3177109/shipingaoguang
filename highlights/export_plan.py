@@ -47,7 +47,9 @@ def _validate_selection(game, items):
     return output, round(total, 3)
 
 
-def create_plan(game, player_label):
+def create_plan(game, player_label, *, audio_mode="silent"):
+    if audio_mode not in ("silent", "original"):
+        raise PlanError("音频模式只能是原声或无声。")
     selected=game.candidates.filter(review="approved")
     if player_label:
         selected=selected.filter(player_label=player_label)
@@ -59,12 +61,14 @@ def create_plan(game, player_label):
         "video_quick_fingerprint_sha256":media_quick_fingerprint(game.video.path),
         "video_duration_seconds":round(game.duration_seconds,3),
         "player_label":player_label,
+        "audio_mode": audio_mode,
         "clip_count":len(clips),
         "total_clipped_seconds":total,
         "clips":clips,
         "human_review_required":True,
         "automatic_scoring_claim":False,
-        "render_profile":"720p_30fps_h264_silent",
+        "render_profile":"720p_30fps_h264_aac" if audio_mode=="original"
+                          else "720p_30fps_h264_silent",
     }
     return plan,_digest(plan)
 
@@ -78,7 +82,11 @@ def validate_plan(job):
         raise PlanError("导出计划校验失败（快照已改变）。")
     if plan.get("game_id")!=job.game_id or plan.get("player_label")!=job.player_label:
         raise PlanError("导出计划属于另一场比赛或球员。")
-    if plan.get("render_profile")!="720p_30fps_h264_silent":
+    if plan.get("audio_mode","silent")!=job.audio_mode:
+        raise PlanError("音频模式与导出任务不一致。")
+    expected_profile = ("720p_30fps_h264_aac" if job.audio_mode=="original"
+                        else "720p_30fps_h264_silent")
+    if job.audio_mode not in ("silent","original") or plan.get("render_profile")!=expected_profile:
         raise PlanError("未知的导出编码方案。")
     if plan.get("human_review_required") is not True or plan.get("automatic_scoring_claim") is not False:
         raise PlanError("导出计划缺少明确人工审核声明。")

@@ -178,3 +178,41 @@ class ImmutableReviewedExportTests(TestCase):
         self.assertEqual(job.clips_done,1)
         self.assertEqual(job.clips_total,1)
         self.assertGreater(job.video.size,0)
+
+    def test_real_ffmpeg_audio_and_missing_audio_fallback(self):
+        import subprocess
+        from django.core.files import File
+        from .services import render_export, probe_duration, has_audio_stream
+
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            self.skipTest("Requires FFmpeg in CI")
+        self.client.force_login(self.owner)
+        for with_audio in (True, False):
+            with self.subTest(source_has_audio=with_audio):
+                name="with-audio.mp4" if with_audio else "no-audio.mp4"
+                source=Path(self.tmp)/name
+                cmd=["ffmpeg","-nostdin","-loglevel","error","-y",
+                     "-f","lavfi","-i","color=c=blue:s=320x240:r=15"]
+                if with_audio:
+                    cmd+=["-f","lavfi","-i",
+                          "sine=frequency=440:sample_rate=48000"]
+                cmd+=["-t","2","-c:v","libx264","-pix_fmt","yuv420p"]
+                if with_audio:
+                    cmd+=["-c:a","aac"]
+                cmd+=[str(source)]
+                subprocess.run(cmd,capture_output=True,check=True,timeout=90)
+                with source.open("rb") as input_video:
+                    self.game.video.save(name,File(input_video))
+                self.game.duration_seconds=probe_duration(self.game.video.path)
+                self.game.save(update_fields=["duration_seconds"])
+                self.approved.start_seconds=.2
+                self.approved.end_seconds=1.5
+                self.approved.save(update_fields=["start_seconds","end_seconds"])
+                self.client.post(self.queue,{"player_label":"7","audio_mode":"original"})
+                job=Export.objects.filter(game=self.game).latest("pk")
+                self.assertEqual(job.audio_mode,"original")
+                render_export(job)
+                job.refresh_from_db()
+                self.assertEqual(job.state,"done")
+                self.assertEqual(job.clips_done,1)
+                self.assertTrue(has_audio_stream(job.video.path))

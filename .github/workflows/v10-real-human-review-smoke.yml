@@ -50,6 +50,8 @@ jobs:
           assert report["immutable_export_plan_verified"] is True
           assert report["queued_duplicate_suppressed"] is True
           assert report["clips_completed"] == edl["plan"]["clip_count"] == 1
+          assert report["output_has_audio"] is True
+          assert report["output_audio_mode"] == edl["plan"]["audio_mode"] == "original"
           assert report["export_plan_sha256"] == edl["plan_sha256"]
           assert edl["plan"]["human_review_required"] is True
           assert edl["plan"]["automatic_scoring_claim"] is False

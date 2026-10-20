@@ -80,6 +80,8 @@ class Export(models.Model):
 
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="exports")
     player_label = models.CharField(max_length=100, blank=True)
+    audio_mode = models.CharField(max_length=16, default="silent",
+                                  choices=[("silent","无声"),("original","保留原声")])
     state = models.CharField(max_length=16, choices=State.choices, default=State.QUEUED)
     video = models.FileField(upload_to=export_path, blank=True)
     error = models.TextField(blank=True)

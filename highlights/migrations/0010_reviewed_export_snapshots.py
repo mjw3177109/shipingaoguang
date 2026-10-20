@@ -11,6 +11,11 @@ class Migration(migrations.Migration):
                 ("queued","排队中"),("running","渲染中"),("done","已完成"),
                 ("failed","失败"),("cancelled","已取消")]),
         ),
+        migrations.AddField(
+            model_name="export",name="audio_mode",
+            field=models.CharField(max_length=16,default="silent",
+                choices=[("silent","无声"),("original","保留原声")]),
+        ),
         migrations.AddField(model_name="export",name="plan",
                             field=models.JSONField(default=dict,blank=True)),
         migrations.AddField(model_name="export",name="plan_sha256",

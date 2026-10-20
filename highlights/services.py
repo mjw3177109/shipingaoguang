@@ -35,6 +35,17 @@ def probe_duration(path):
     return duration
 
 
+def has_audio_stream(path):
+    """True if FFprobe finds an audio track. No-audio recordings are valid."""
+    proc = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "a:0",
+        "-show_entries", "stream=index", "-of", "csv=p=0", str(path)
+    ], capture_output=True, text=True, timeout=90, check=False)
+    if proc.returncode != 0:
+        raise MediaError("无法读取原始视频音轨信息。")
+    return bool(proc.stdout.strip())
+
+
 def audio_peaks(path, duration, max_candidates=24):
     """Return (start, end, loudness) candidates from sound spikes, NOT baskets."""
     command = [
@@ -132,6 +143,10 @@ def render_export(job):
     if job.clips_total != len(clips):
         job.clips_total = len(clips)
         job.save(update_fields=["clips_total"])
+    audio_mode = job.audio_mode if job.plan else "silent"
+    if audio_mode not in ("silent", "original"):
+        raise MediaError("音频输出配置无效。")
+    input_has_audio = has_audio_stream(job.game.video.path) if audio_mode == "original" else False
     with tempfile.TemporaryDirectory(prefix="basketcut-") as folder:
         root = Path(folder)
         parts = []
@@ -139,15 +154,32 @@ def render_export(job):
             if not (0 <= clip.start_seconds < clip.end_seconds <= job.game.duration_seconds + .1):
                 raise MediaError(f"片段 {clip.pk} 的时间范围不合法。")
             file = root / f"part_{index:04d}.mp4"
-            # Uniform 720p 30fps, no sound in MVP; eliminates heterogeneous audio tracks.
-            _run_ffmpeg([
+            command = [
                 "-ss", f"{clip.start_seconds:.3f}", "-i", job.game.video.path,
+            ]
+            if audio_mode == "original" and not input_has_audio:
+                # Deterministically supply an AAC silent track, so concat uses
+                # the same stream layout for every source clip.
+                command += ["-f", "lavfi", "-i",
+                            "anullsrc=channel_layout=stereo:sample_rate=48000"]
+            command += [
                 "-t", f"{clip.end_seconds - clip.start_seconds:.3f}",
+                "-map", "0:v:0",
+            ]
+            if audio_mode == "original":
+                command += ["-map", "0:a:0" if input_has_audio else "1:a:0"]
+            command += [
                 "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
                        "pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30",
-                "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
-                "-pix_fmt", "yuv420p", str(file),
-            ])
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-pix_fmt", "yuv420p",
+            ]
+            if audio_mode == "original":
+                command += ["-c:a", "aac", "-ar", "48000", "-ac", "2",
+                            "-b:a", "128k"]
+            else:
+                command += ["-an"]
+            _run_ffmpeg([*command, str(file)])
             parts.append(file)
             job.clips_done = index + 1
             job.save(update_fields=["clips_done"])

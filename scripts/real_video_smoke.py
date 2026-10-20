@@ -25,7 +25,7 @@ from django.test import Client
 from django.urls import reverse
 from highlights.management.commands.runworker import Command
 from highlights.models import Candidate, Export, Game, Venue
-from highlights.services import probe_duration
+from highlights.services import probe_duration, has_audio_stream
 
 
 def _hash(path):
@@ -119,6 +119,8 @@ def main():
     highlight = output / "highlight.mp4"
     shutil.copyfile(job.video.path, highlight)
     final_duration = probe_duration(highlight)
+    if not has_audio_stream(highlight):
+        raise RuntimeError("V1.0 requested original audio but final MP4 has no audio track")
     subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
                     "-y", "-ss", str(min(.5, final_duration/2)), "-i", str(highlight),
                     "-frames:v", "1", str(output/"preview.jpg")], timeout=80, check=True)
@@ -127,6 +129,8 @@ def main():
     (output/"edit_list.json").write_text(
         json.dumps(edit_list,ensure_ascii=False,indent=2),encoding="utf-8")
     report = {
+        "output_has_audio": True,
+        "output_audio_mode": job.audio_mode,
         "immutable_export_plan_verified": True,
         "export_plan_sha256": job.plan_sha256,
         "queued_duplicate_suppressed": True,

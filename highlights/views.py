@@ -162,17 +162,18 @@ def review_candidate(request, pk, candidate_id):
 def queue_export(request, pk):
     game = _game(request, pk)
     label = request.POST.get("player_label", "").strip()[:100]
+    audio_mode = request.POST.get("audio_mode","silent")
     try:
         with transaction.atomic():
             # Serializes competing export requests on Postgres (SQLite used in CI).
             Game.objects.select_for_update().get(pk=game.pk)
-            plan, digest = create_plan(game, label)
+            plan, digest = create_plan(game, label, audio_mode=audio_mode)
             active = Export.objects.filter(game=game, player_label=label,
                 plan_sha256=digest, state__in=("queued", "running")).exists()
             if active:
                 messages.info(request, "相同镜头已在渲染队列中，没有重复提交。")
             else:
-                Export.objects.create(game=game, player_label=label,
+                Export.objects.create(game=game, player_label=label,audio_mode=audio_mode,
                     plan=plan, plan_sha256=digest,
                     clips_total=plan["clip_count"])
                 messages.success(request, f"已锁定 {plan['clip_count']} 条人工通过的镜头并排队。")
@@ -215,7 +216,7 @@ def retry_export(request, pk, export_id):
                 messages.info(request,"同一导出计划已经在队列中。")
             else:
                 Export.objects.create(game=game,player_label=original.player_label,
-                    plan=original.plan,plan_sha256=original.plan_sha256,
+                    audio_mode=original.audio_mode,plan=original.plan,plan_sha256=original.plan_sha256,
                     clips_total=original.plan["clip_count"],
                     attempt=original.attempt+1,retry_of=original)
                 messages.success(request,"已保留原审核快照并建立新的重试任务。")
