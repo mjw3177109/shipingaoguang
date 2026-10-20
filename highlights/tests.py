@@ -160,7 +160,7 @@ class VideoFlowTests(TestCase):
         self.client.post(reverse("queue_analysis", args=[self.game.pk]))
         with patch("highlights.management.commands.runworker.analyze_game") as analyze:
             from highlights.management.commands.runworker import Command
-            analyze.side_effect = lambda game: Game.objects.filter(pk=game.pk).update(state="ready") or 1
+            analyze.side_effect = lambda game, heartbeat=None: (Game.objects.filter(pk=game.pk, state="analyzing", worker_token=game.worker_token).update(state="ready", worker_token="", worker_heartbeat_at=None) or 1)
             self.assertTrue(Command()._process_one())
         self.game.refresh_from_db()
         self.assertEqual(self.game.state, "ready")
