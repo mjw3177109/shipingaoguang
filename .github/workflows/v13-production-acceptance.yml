@@ -44,6 +44,7 @@ jobs:
           python manage.py test highlights.test_v13_diagnostics --verbosity 2
       - name: Strict preflight with live one-shot Worker heartbeat
         run: |
+          mkdir -p media
           python manage.py runworker --once
           python manage.py diagnose --json --strict > /tmp/diagnostics.json
           python manage.py workerstatus --json --check-worker
