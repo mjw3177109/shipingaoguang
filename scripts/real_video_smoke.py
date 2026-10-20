@@ -95,7 +95,7 @@ def main():
     })
     if response.status_code != 302 or game.candidates.get(pk=selected.pk).review != "approved":
         raise RuntimeError("Review endpoint failed")
-    response = web.post(reverse("queue_export", args=[game.pk]), {"player_label": ""})
+    response = web.post(reverse("queue_export", args=[game.pk]), {"player_label": "", "audio_mode": "original"})
     if response.status_code != 302:
         raise RuntimeError("Export queue endpoint failed")
     job = Export.objects.filter(game=game).latest("pk")
@@ -108,7 +108,7 @@ def main():
     if edit_list["plan_sha256"] != job.plan_sha256 or edit_list["plan"]["clips"][0]["candidate_id"] != selected.pk:
         raise RuntimeError("V1.0 immutable snapshot mismatch")
     # Double click is harmless: no duplicate queued export for same selection.
-    web.post(reverse("queue_export", args=[game.pk]), {"player_label": ""})
+    web.post(reverse("queue_export", args=[game.pk]), {"player_label": "", "audio_mode": "original"})
     if Export.objects.filter(game=game).count() != 1:
         raise RuntimeError("V1.0 duplicate click enqueued multiple exports")
     if not worker._process_one():
