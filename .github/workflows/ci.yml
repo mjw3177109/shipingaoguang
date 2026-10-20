@@ -19,7 +19,7 @@ jobs:
       - name: Check Docker Compose configuration
         env:
           POSTGRES_PASSWORD: ci-only-placeholder
-        run: docker compose -f compose.yaml config --quiet
+        run: cp .env.example .env && docker compose -f compose.yaml config --quiet
       - run: python manage.py check
       - run: python manage.py collectstatic --noinput
       - run: python manage.py makemigrations --check --dry-run
