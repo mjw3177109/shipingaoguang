@@ -20,6 +20,7 @@ jobs:
       - run: python manage.py collectstatic --noinput
       - run: python manage.py makemigrations --check --dry-run
       - run: python manage.py migrate --noinput
+      - run: python manage.py workerstatus --json
       - run: python manage.py test --verbosity 2
       - run: python -m compileall -q highlights
       - run: python -m highlights.vision.evaluate --proposals benchmarks/example_proposals.json --truth benchmarks/example_truth.json --out /tmp/basketcut-ci-single

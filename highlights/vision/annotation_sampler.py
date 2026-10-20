@@ -59,7 +59,7 @@ def choose_suggestions(entries, duration, limit=24):
     return sorted(selected,key=lambda x:x["time_seconds"])
 
 
-def scan_annotation_frames(video_path, *, limit=24, max_samples=96, sampling_round=0):
+def scan_annotation_frames(video_path, *, limit=24, max_samples=96, sampling_round=0, heartbeat=None):
     import cv2
     import numpy as np
     from .cpu import _colored_ball_candidates
@@ -95,6 +95,8 @@ def scan_annotation_frames(video_path, *, limit=24, max_samples=96, sampling_rou
                 fraction+=remainder/divisor
                 divisor*=2.
         for index in range(num):
+            if heartbeat:
+                heartbeat()
             t=(index+fraction)*duration/num
             if t>=duration:
                 continue

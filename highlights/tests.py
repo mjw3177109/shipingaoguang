@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core.files import File
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from django.urls import reverse
 
 from .models import Candidate, Export, Game, Venue
@@ -159,7 +160,7 @@ class VideoFlowTests(TestCase):
         self.client.post(reverse("queue_analysis", args=[self.game.pk]))
         with patch("highlights.management.commands.runworker.analyze_game") as analyze:
             from highlights.management.commands.runworker import Command
-            analyze.side_effect = lambda game: Game.objects.filter(pk=game.pk).update(state="ready") or 1
+            analyze.side_effect = lambda game, heartbeat=None: (Game.objects.filter(pk=game.pk, state="analyzing", worker_token=game.worker_token).update(state="ready", worker_token="", worker_heartbeat_at=None) or 1)
             self.assertTrue(Command()._process_one())
         self.game.refresh_from_db()
         self.assertEqual(self.game.state, "ready")
@@ -185,10 +186,15 @@ class VideoFlowTests(TestCase):
         Candidate.objects.create(
             game=self.game, start_seconds=.5, end_seconds=2.5,
             review="approved", player_label="7号", source="manual")
-        job = Export.objects.create(game=self.game, player_label="7号")
+        job = Export.objects.create(
+            game=self.game, player_label="7号", state=Export.State.RUNNING,
+            worker_token="test-worker-lease", worker_started_at=timezone.now(),
+            worker_heartbeat_at=timezone.now())
         render_export(job)
         job.refresh_from_db()
         self.assertEqual(job.state, "done")
+        self.assertEqual(job.worker_token, "")
+        self.assertIsNone(job.worker_heartbeat_at)
         self.assertTrue(Path(job.video.path).exists())
         self.assertGreater(Path(job.video.path).stat().st_size, 500)
         self.assertGreater(probe_duration(job.video.path), 1)

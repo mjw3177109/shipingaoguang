@@ -151,6 +151,8 @@ def queue_ball_sampling(request, pk):
     changed = Game.objects.filter(pk=game.pk,ball_sampling_state__in=(
         "idle","ready","failed")).update(
             ball_sampling_state="queued",ball_sampling_error="",
+            ball_sampling_started_at=None, ball_sampling_heartbeat_at=None,
+            ball_sampling_worker_token="", ball_sampling_recovery_count=0,
             ball_sampling_round=F("ball_sampling_round")+1)
     if changed:
         messages.success(request,"CPU 智能抽帧已排队；标注建议不等于真实篮球标签。")

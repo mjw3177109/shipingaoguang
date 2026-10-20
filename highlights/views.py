@@ -112,7 +112,13 @@ def queue_analysis(request, pk):
         game.state = "queued"
         game.analysis_engine = mode
         game.error = ""
-        game.save(update_fields=["state", "analysis_engine", "error"])
+        game.worker_started_at = None
+        game.worker_heartbeat_at = None
+        game.worker_token = ""
+        game.worker_recovery_count = 0
+        game.save(update_fields=["state", "analysis_engine", "error",
+                                 "worker_started_at", "worker_heartbeat_at",
+                                 "worker_token", "worker_recovery_count"])
         messages.success(request, ("CPU视觉" if mode == "cpu" else "声音") + "候选任务已加入后台队列。")
     return redirect("game", pk=pk)
 
