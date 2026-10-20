@@ -1,0 +1,17 @@
+{% for item in exports %}
+<tr id="export-row-{{ item.pk }}" data-export-state="{{ item.state }}">
+<td>{{ item.player_label|default:"全场集锦" }}</td>
+<td>{{ item.get_state_display }} {% if item.clips_total %}<span class="muted small">· {{ item.clips_done }}/{{ item.clips_total }} 段</span>{% endif %}{% if item.attempt > 1 %}<span class="muted small">· 第 {{ item.attempt }} 次尝试</span>{% endif %}
+{% if item.worker_recovery_count %}<span class="muted small">· 自动恢复 {{ item.worker_recovery_count }} 次</span>{% endif %}
+{% if item.worker_started_at and item.state == 'running' %}<span class="muted small">· 开始 {{ item.worker_started_at|date:"H:i:s" }}</span>{% endif %}
+{% if item.audio_fallback_used %}<span class="muted small">· 原声缺失已补静音</span>{% endif %}</td>
+<td>{{ item.created_at|date:"m-d H:i" }}</td><td>
+{% if item.state == 'done' %}<a class="inline-link" href="{% url 'export_video' game.pk item.pk %}">下载 MP4 ↓</a>
+{% elif item.state == 'failed' %}<span class="error-text">{{ item.error }}</span>
+{% if item.plan and item.attempt < 3 %}<form method="post" action="{% url 'retry_export' game.pk item.pk %}">{% csrf_token %}<button class="secondary" type="submit">按原审核快照重试（第 {{ item.attempt }} 次后）</button></form>{% endif %}
+{% elif item.state == 'queued' %}<form method="post" action="{% url 'cancel_export' game.pk item.pk %}">{% csrf_token %}<button class="ghost" type="submit">取消排队</button></form>
+{% elif item.state == 'cancelled' %}<span class="muted small">已取消</span>
+{% else %}<span class="muted small">后台处理中</span>{% endif %}
+{% if item.plan %}<a class="inline-link" href="{% url 'export_manifest' game.pk item.pk %}">下载可追溯剪辑清单 JSON ↓</a>{% else %}<span class="muted small">旧版导出</span>{% endif %}
+</td></tr>
+{% empty %}<tr><td colspan="4" class="muted">暂无导出任务。</td></tr>{% endfor %}

@@ -10,6 +10,8 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import Candidate, Export, Game, Venue, ShotAnnotation
@@ -96,6 +98,41 @@ def game_detail(request, pk):
     annotations = game.shot_annotations.all()
     exports = game.exports.order_by("-created_at")[:20]
     return render(request, "game.html", {"game": game, "candidates": candidates, "exports": exports, "annotations": annotations})
+
+
+@login_required
+@require_GET
+def task_status(request, pk):
+    """Private live status snapshot; refreshes task fragments without reloading video."""
+    game = _game(request, pk)
+    exports = list(game.exports.order_by("-created_at")[:20])
+    export_html = render_to_string(
+        "partials/export_rows.html", {"game": game, "exports": exports}, request=request)
+    active = (
+        game.state in (Game.State.QUEUED, Game.State.ANALYZING)
+        or game.ball_sampling_state in ("queued", "running")
+        or game.exports.filter(state__in=(Export.State.QUEUED, Export.State.RUNNING)).exists()
+    )
+    response = JsonResponse({
+        "checked_at": timezone.now().isoformat(),
+        "active": active,
+        "game_state": game.state,
+        "game_state_label": game.get_state_display(),
+        "game_error": game.error,
+        "game_worker_started_at": game.worker_started_at.isoformat()
+            if game.worker_started_at else None,
+        "game_worker_recovery_count": game.worker_recovery_count,
+        "ball_sampling_state": game.ball_sampling_state,
+        "ball_sampling_state_label": game.get_ball_sampling_state_display(),
+        "ball_sampling_error": game.ball_sampling_error,
+        "ball_sampling_recovery_count": game.ball_sampling_recovery_count,
+        "ball_sampling_round": game.ball_sampling_round,
+        "ball_suggestion_count": game.ball_suggestions.count(),
+        "exports_html": export_html,
+    }, json_dumps_params={"ensure_ascii": False})
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @login_required

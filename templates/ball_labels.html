@@ -1,6 +1,8 @@
 {% extends "base.html" %}{% load static %}
-{% block title %}篮球框标注 · {{ game.title }}{% endblock %}
+{% block title %}篮球框标注 · {{ game.title }}<script src="{% static 'task-status.js' %}" defer></script>
+{% endblock %}
 {% block body %}
+<div id="task-live-status" data-status-url="{% url 'task_status' game.pk %}" data-poll-ms="5000" hidden></div>
 <a href="{% url 'game' game.pk %}" class="back">← 返回比赛</a> · <a href="{% url 'ball_campaign' %}" class="inline-link">V0.8 全部球馆标注进度 →</a>
 <div class="heading"><div><div class="eyebrow">V0.7 / 逐帧质检与快速标注</div><h1>篮球外接框人工标注</h1>
 <p class="muted">{{ game.title }} · {{ game.duration_seconds|floatformat:2 }} 秒</p></div>
@@ -53,8 +55,8 @@
 <p class="hint">从整段比赛自动挑选橙色疑似篮球、运动强的画面，以及一些普通背景画面。**全部只是待标注帧**，绝不自动生成篮球存在或无球标签。建议先看橙色球衣/地板干扰，再人工决定球框或无球。</p>
 <form action="{% url 'queue_ball_sampling' game.pk %}" method="post">{% csrf_token %}
 <button class="secondary" type="submit" {% if game.ball_sampling_state == 'queued' or game.ball_sampling_state == 'running' %}disabled{% endif %}>再抽一轮 · 最多新增 24 帧（CPU）</button>
-<span class="muted">状态：{{ game.get_ball_sampling_state_display }} · 已抽 {{ game.ball_sampling_round }} 轮 · 累积待审 {{ suggestions|length }} 条（最多保存 300 条）{% if game.ball_sampling_recovery_count %} · 自动恢复 {{ game.ball_sampling_recovery_count }} 次{% endif %}</span></form>
-{% if game.ball_sampling_error %}<p class="alert danger">采样失败：{{ game.ball_sampling_error }}</p>{% endif %}
+<span class="muted" id="sampling-status">状态：{{ game.get_ball_sampling_state_display }} · 已抽 {{ game.ball_sampling_round }} 轮 · 累积待审 {{ suggestions|length }} 条（最多保存 300 条）{% if game.ball_sampling_recovery_count %} · 自动恢复 {{ game.ball_sampling_recovery_count }} 次{% endif %}</span></form>
+<p class="alert danger" id="sampling-error" {% if not game.ball_sampling_error %}style="display:none"{% endif %}>采样失败：{{ game.ball_sampling_error }}</p>
 {% if game.ball_sampling_state == 'queued' or game.ball_sampling_state == 'running' %}
 <p class="hint">任务在已有后台 Worker 中执行；稍后刷新此页面查看建议。</p>
 {% endif %}

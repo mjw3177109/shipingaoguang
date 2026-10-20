@@ -10,3 +10,8 @@
 .truth-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px;max-height:220px;overflow:auto}
 .truth-tag{display:flex;align-items:center;border:1px solid #e5e9ef;border-radius:9px;background:#f7f9fc;padding:0 5px}
 .truth-tag form{margin:0}.truth-tag .ghost{padding:6px}
+
+
+/* V1.2 upload progress and live task feedback */
+.upload-progress-wrap { display: grid; gap: 8px; margin-top: 8px; }
+.upload-progress-wrap progress { display: block; width: 100%; height: 12px; }

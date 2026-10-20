@@ -2,11 +2,13 @@
 {% load static %}{% block title %}{{ game.title }} · BasketCut{% endblock %}
 {% block body %}<a href="{% url 'dashboard' %}" class="back">← 返回比赛列表</a>
 <div class="heading"><div><div class="eyebrow">{{ game.venue.name }} / 比赛管理</div><h1>{{ game.title }}</h1>
-<p class="muted">时长 {{ game.duration_seconds|floatformat:1 }} 秒 · 状态 {{ game.get_state_display }}{% if game.worker_started_at and game.state == 'analyzing' %} · 开始于 {{ game.worker_started_at|date:"H:i:s" }}{% endif %}{% if game.worker_recovery_count %} · Worker 自动恢复 {{ game.worker_recovery_count }} 次{% endif %}</p></div>
+<p class="muted">时长 {{ game.duration_seconds|floatformat:1 }} 秒 · <span id="game-task-state">状态 {{ game.get_state_display }}{% if game.worker_started_at and game.state == 'analyzing' %} · 开始于 {{ game.worker_started_at|date:"H:i:s" }}{% endif %}{% if game.worker_recovery_count %} · Worker 自动恢复 {{ game.worker_recovery_count }} 次{% endif %}</span></p></div>
 <form method="post" action="{% url 'queue_analysis' game.pk %}">{% csrf_token %}
 <div class="actions"><button class="primary" type="submit" name="engine" value="cpu" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>CPU 视觉候选（免费）</button>
 <button class="secondary" type="submit" name="engine" value="audio" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>声音峰值候选</button></div></form></div>
-{% if game.error %}<div class="alert danger">后台任务错误：{{ game.error }}</div>{% endif %}
+<div id="game-task-error" class="alert danger" {% if not game.error %}style="display:none"{% endif %}>后台任务错误：{{ game.error }}</div>
+<p class="hint" id="task-live-message" aria-live="polite">任务状态自动更新；不会重置视频播放位置。</p>
+<div id="task-live-status" data-status-url="{% url 'task_status' game.pk %}" data-poll-ms="5000" hidden></div>
 <div class="columns wide"><section class="panel">
 <h2>原始录像预览</h2>
 <div class="video-roi-shell" id="video-roi-shell">
@@ -91,23 +93,11 @@
 <button class="secondary" name="review" value="pending">存为待审</button></div></form></div>
 {% empty %}<div class="empty">暂无候选，点击上方分析或手动添加；安静的进球可能不会被音量算法发现。</div>{% endfor %}
 </section>
-<section class="panel"><div class="section-bar"><h2>导出记录</h2><button class="ghost" onclick="location.reload()" type="button">刷新任务状态</button></div>
-<div class="table-scroll"><table><thead><tr><th>范围</th><th>状态 / 进度</th><th>创建时间</th><th>结果 / 操作</th></tr></thead><tbody>
-{% for item in exports %}<tr><td>{{ item.player_label|default:"全场集锦" }}</td><td>{{ item.get_state_display }} {% if item.clips_total %}<span class="muted small">· {{ item.clips_done }}/{{ item.clips_total }} 段</span>{% endif %}{% if item.attempt > 1 %}<span class="muted small">· 第 {{ item.attempt }} 次尝试</span>{% endif %}
-{% if item.worker_recovery_count %}<span class="muted small">· 自动恢复 {{ item.worker_recovery_count }} 次</span>{% endif %}
-{% if item.worker_started_at and item.state == 'running' %}<span class="muted small">· 开始 {{ item.worker_started_at|date:"H:i:s" }}</span>{% endif %}
-{% if item.audio_fallback_used %}<span class="muted small">· 原声缺失已补静音</span>{% endif %}</td>
-<td>{{ item.created_at|date:"m-d H:i" }}</td><td>
-{% if item.state == 'done' %}<a class="inline-link" href="{% url 'export_video' game.pk item.pk %}">下载 MP4 ↓</a>
-{% elif item.state == 'failed' %}<span class="error-text">{{ item.error }}</span>
-{% if item.plan and item.attempt < 3 %}<form method="post" action="{% url 'retry_export' game.pk item.pk %}">{% csrf_token %}<button class="secondary" type="submit">按原审核快照重试（第 {{ item.attempt }} 次后）</button></form>{% endif %}
-{% elif item.state == 'queued' %}<form method="post" action="{% url 'cancel_export' game.pk item.pk %}">{% csrf_token %}<button class="ghost" type="submit">取消排队</button></form>
-{% elif item.state == 'cancelled' %}<span class="muted small">已取消</span>
-{% else %}<span class="muted small">后台处理中</span>{% endif %}
-{% if item.plan %}<a class="inline-link" href="{% url 'export_manifest' game.pk item.pk %}">下载可追溯剪辑清单 JSON ↓</a>{% else %}<span class="muted small">旧版导出</span>{% endif %}
-</td></tr>
-{% empty %}<tr><td colspan="4" class="muted">暂无导出任务。</td></tr>{% endfor %}
+<section class="panel"><div class="section-bar"><h2>导出记录</h2><button class="ghost" id="refresh-task-status" type="button">立即刷新任务状态</button></div>
+<div class="table-scroll"><table><thead><tr><th>范围</th><th>状态 / 进度</th><th>创建时间</th><th>结果 / 操作</th></tr></thead><tbody id="export-table-body">
+{% include "partials/export_rows.html" %}
 </tbody></table></div></section>
 <section class="delete-area"><form method="post" action="{% url 'delete_game' game.pk %}" onsubmit="return confirm('确定永久删除这场比赛及其本地录像、集锦吗？不可恢复。')">{% csrf_token %}<button class="danger-button" type="submit">删除比赛及录像</button></form></section>
 <script>function seekVideo(seconds){let video=document.getElementById('player');video.currentTime=Number(seconds);video.scrollIntoView({behavior:'smooth',block:'center'});video.play().catch(()=>{});}</script>
+<script src="{% static 'task-status.js' %}" defer></script>
 {% endblock %}

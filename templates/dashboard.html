@@ -1,17 +1,20 @@
-{% extends 'base.html' %}{% block body %}
+{% extends 'base.html' %}{% load static %}{% block body %}
 <div class="heading"><div><div class="eyebrow">OVERVIEW / 工作台</div><h1>赛事管理</h1><p class="muted">上传比赛 · CPU 免费候选 · 人工审核 · 固定剪辑清单 · 导出 MP4</p></div>
-<div class="pill">V1.0 人工审核剪辑版 / CPU 优先</div></div>
+<div class="pill">V1.2 实时任务监控 / CPU 优先</div></div>
 <div class="columns">
 <section class="panel"><h2>① 新建球馆</h2><p class="muted">不同账号之间默认隔离；目前一个账号可创建多个球馆。</p>
 <form method="post" action="{% url 'create_venue' %}" class="stack">{% csrf_token %}
 <label>球馆名称<input name="name" maxlength="120" placeholder="例如：星河篮球馆" required></label>
 <button class="primary">创建球馆</button></form></section>
 <section class="panel"><h2>② 上传比赛视频</h2><p class="muted">MP4 / MOV / M4V / MKV / WEBM，最多按配置 4GB；上传时会先校验视频。</p>
-<form method="post" action="{% url 'upload_game' %}" enctype="multipart/form-data" class="stack">{% csrf_token %}
+<form id="upload-form" method="post" action="{% url 'upload_game' %}" enctype="multipart/form-data" class="stack">{% csrf_token %}
 <label>选择球馆<select name="venue_id" required>{% for venue in venues %}<option value="{{ venue.pk }}">{{ venue.name }}</option>{% empty %}<option disabled>请先创建球馆</option>{% endfor %}</select></label>
 <label>比赛名称<input name="title" maxlength="180" placeholder="周五 5V5 友谊赛" required></label>
 <label>比赛录像<input name="video" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm" required></label>
-<button class="primary" {% if not venues %}disabled{% endif %}>上传录像</button></form></section>
+<button id="upload-submit" class="primary" {% if not venues %}disabled{% endif %}>上传录像</button>
+<div id="upload-progress-wrap" class="upload-progress-wrap" style="display:none" aria-live="polite">
+<progress id="upload-progress" max="100" value="0"></progress>
+<span id="upload-progress-text" class="muted small">准备上传…</span></div></form></section>
 </div>
 <section class="panel"><div class="section-bar"><div><h2>V0.8 · 多场比赛训练样本采集</h2>
 <p class="muted small">检查真实人工球框、无球负例、二次复核与授权缺口；CPU 推荐帧不计入训练样本。</p></div>
@@ -23,4 +26,5 @@
 <td><span class="status">{{ game.get_state_display }}</span></td><td><a class="inline-link" href="{% url 'game' game.pk %}">进入审片 →</a></td></tr>
 {% empty %}<tr><td colspan="5" class="muted">还没有比赛，先上传第一段录像。</td></tr>{% endfor %}
 </tbody></table></div></section>
+<script src="{% static 'upload-progress.js' %}" defer></script>
 {% endblock %}
