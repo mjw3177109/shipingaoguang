@@ -203,3 +203,25 @@ python -m highlights.vision.cpu --video video.mp4 --config game-1-hoops.json --o
 - **安全边界**：研究篮球模型仍不准自动发布。本版没有确认进球、身份或得分能力；公共 CC0 视频的 CI 使用**模拟审核**仅证明工程运行，不证明真实 AI 检出率。
 
 [完整 V1.0 使用手册、已验证与尚未完成事项](docs/V10_HUMAN_REVIEWED_RELEASE.md)。
+
+## V1.1 · Worker 心跳与崩溃恢复
+
+后台分析、CPU 标注抽帧和 MP4 渲染现在使用带随机令牌的租约。长步骤会定期续租；Worker 被杀死后，其他轮询周期会检测过期任务，默认 15 分钟无心跳后重新排队，自动恢复最多 2 次。旧 Worker 即使随后恢复，也无法提交旧的候选、进度或 MP4。超过恢复次数会标记失败，避免无限重试。
+
+在 `.env` 中可以设置：
+
+```dotenv
+WORKER_STALE_AFTER_SECONDS=900
+WORKER_MAX_RECOVERIES=2
+```
+
+运维查看队列：
+
+```bash
+docker compose exec worker python manage.py workerstatus
+docker compose exec worker python manage.py workerstatus --json
+docker compose exec worker python manage.py workerstatus --check-stale
+docker compose logs -f worker
+```
+
+完整说明：[V1.1 Worker 租约与恢复手册](docs/V11_WORKER_LEASES.md)。此版本改善单个常驻 Worker 的崩溃恢复与状态可见性；不代表已经完成多机高可用或商业级负载验收。

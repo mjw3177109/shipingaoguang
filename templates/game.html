@@ -2,7 +2,7 @@
 {% load static %}{% block title %}{{ game.title }} · BasketCut{% endblock %}
 {% block body %}<a href="{% url 'dashboard' %}" class="back">← 返回比赛列表</a>
 <div class="heading"><div><div class="eyebrow">{{ game.venue.name }} / 比赛管理</div><h1>{{ game.title }}</h1>
-<p class="muted">时长 {{ game.duration_seconds|floatformat:1 }} 秒 · 状态 {{ game.get_state_display }}</p></div>
+<p class="muted">时长 {{ game.duration_seconds|floatformat:1 }} 秒 · 状态 {{ game.get_state_display }}{% if game.worker_started_at and game.state == 'analyzing' %} · 开始于 {{ game.worker_started_at|date:"H:i:s" }}{% endif %}{% if game.worker_recovery_count %} · Worker 自动恢复 {{ game.worker_recovery_count }} 次{% endif %}</p></div>
 <form method="post" action="{% url 'queue_analysis' game.pk %}">{% csrf_token %}
 <div class="actions"><button class="primary" type="submit" name="engine" value="cpu" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>CPU 视觉候选（免费）</button>
 <button class="secondary" type="submit" name="engine" value="audio" {% if game.state == 'queued' or game.state == 'analyzing' %}disabled{% endif %}>声音峰值候选</button></div></form></div>
@@ -94,6 +94,8 @@
 <section class="panel"><div class="section-bar"><h2>导出记录</h2><button class="ghost" onclick="location.reload()" type="button">刷新任务状态</button></div>
 <div class="table-scroll"><table><thead><tr><th>范围</th><th>状态 / 进度</th><th>创建时间</th><th>结果 / 操作</th></tr></thead><tbody>
 {% for item in exports %}<tr><td>{{ item.player_label|default:"全场集锦" }}</td><td>{{ item.get_state_display }} {% if item.clips_total %}<span class="muted small">· {{ item.clips_done }}/{{ item.clips_total }} 段</span>{% endif %}{% if item.attempt > 1 %}<span class="muted small">· 第 {{ item.attempt }} 次尝试</span>{% endif %}
+{% if item.worker_recovery_count %}<span class="muted small">· 自动恢复 {{ item.worker_recovery_count }} 次</span>{% endif %}
+{% if item.worker_started_at and item.state == 'running' %}<span class="muted small">· 开始 {{ item.worker_started_at|date:"H:i:s" }}</span>{% endif %}
 {% if item.audio_fallback_used %}<span class="muted small">· 原声缺失已补静音</span>{% endif %}</td>
 <td>{{ item.created_at|date:"m-d H:i" }}</td><td>
 {% if item.state == 'done' %}<a class="inline-link" href="{% url 'export_video' game.pk item.pk %}">下载 MP4 ↓</a>

@@ -79,7 +79,7 @@ def _activity_candidates(observations, duration, *, max_candidates=36):
     return sorted(picked, key=lambda x:x["start_seconds"])
 
 
-def scan_cpu_video(path, *, hoops=None, sample_seconds=.35, max_frames=10000):
+def scan_cpu_video(path, *, hoops=None, sample_seconds=.35, max_frames=10000, heartbeat=None):
     import cv2
     import numpy as np
     if not .15 <= sample_seconds <= 5 or not 1 <= max_frames <= 20000:
@@ -101,6 +101,8 @@ def scan_cpu_video(path, *, hoops=None, sample_seconds=.35, max_frames=10000):
         last_time = 0
         prev_points = []
         for i in range(scheduled):
+            if heartbeat:
+                heartbeat()
             t = i * sample_seconds
             video.set(cv2.CAP_PROP_POS_MSEC, 1000*t)
             ok, frame = video.read()

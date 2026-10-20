@@ -40,7 +40,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: python manage.py runworker
+    command:
+      - python
+      - manage.py
+      - runworker
+      - --stale-after
+      - ${WORKER_STALE_AFTER_SECONDS:-900}
+      - --max-recoveries
+      - ${WORKER_MAX_RECOVERIES:-2}
 volumes:
   pgdata:
   media:

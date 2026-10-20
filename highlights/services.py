@@ -5,13 +5,17 @@ import math
 import subprocess
 import sys
 import tempfile
+import time
 from array import array
 from pathlib import Path
 
 from django.core.files import File
+from django.db import transaction
+from django.utils import timezone
 
-from .models import Candidate
+from .models import Candidate, Game
 from .export_plan import validate_plan
+from .worker_leases import WorkerLeaseLost, heartbeat_export, throttled_heartbeat
 
 
 class MediaError(RuntimeError):
@@ -46,33 +50,47 @@ def has_audio_stream(path):
     return bool(proc.stdout.strip())
 
 
-def audio_peaks(path, duration, max_candidates=24):
-    """Return (start, end, loudness) candidates from sound spikes, NOT baskets."""
+def audio_peaks(path, duration, max_candidates=24, heartbeat=None):
+    """Return sound-spike proposals without buffering a full game's PCM in RAM."""
     command = [
         "ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
         "-map", "0:a:0?", "-vn", "-ac", "1", "-ar", "8000",
         "-f", "s16le", "pipe:1",
     ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     samples = []
-    try:
-        chunk_size = 8000  # half-second at 8kHz mono, signed 16-bit
-        while True:
-            raw = process.stdout.read(chunk_size)
-            if not raw:
-                break
-            amplitudes = array("h")
-            amplitudes.frombytes(raw[: len(raw) - len(raw) % 2])
-            if sys.byteorder != "little":
-                amplitudes.byteswap()
-            if amplitudes:
-                rms = math.sqrt(sum(x * x for x in amplitudes) / len(amplitudes)) / 32768
-                samples.append(rms)
-        process.wait(timeout=30)
-    except Exception:
-        process.kill()
-        process.wait()
-        raise
+    chunk_size = 8000  # half-second at 8kHz mono, signed 16-bit
+    with tempfile.TemporaryFile(mode="w+b") as pcm:
+        process = subprocess.Popen(command, stdout=pcm, stderr=subprocess.DEVNULL)
+        try:
+            while process.poll() is None:
+                if heartbeat:
+                    heartbeat()
+                time.sleep(.25)
+            if process.returncode != 0:
+                return []
+            pcm.seek(0)
+            while True:
+                if heartbeat:
+                    heartbeat()
+                raw = pcm.read(chunk_size)
+                if not raw:
+                    break
+                amplitudes = array("h")
+                amplitudes.frombytes(raw[: len(raw) - len(raw) % 2])
+                if sys.byteorder != "little":
+                    amplitudes.byteswap()
+                if amplitudes:
+                    rms = math.sqrt(sum(x * x for x in amplitudes) / len(amplitudes)) / 32768
+                    samples.append(rms)
+        except BaseException:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            raise
     if not samples:
         return []
     ordered = sorted(samples)
@@ -103,30 +121,104 @@ def audio_peaks(path, duration, max_candidates=24):
     return result
 
 
-def analyze_game(game):
+def analyze_game(game, heartbeat=None):
     duration = probe_duration(game.video.path)
-    proposals = audio_peaks(game.video.path, duration)
-    Candidate.objects.filter(game=game, source="audio_peak", review="pending").delete()
-    Candidate.objects.bulk_create([
-        Candidate(game=game, start_seconds=start, end_seconds=end,
-                  source="audio_peak", energy_score=energy)
-        for start, end, energy in proposals
-    ])
-    game.duration_seconds = duration
-    game.state = "ready"
-    game.error = ""
-    game.save(update_fields=["duration_seconds", "state", "error"])
+    proposals = audio_peaks(game.video.path, duration, heartbeat=heartbeat)
+    if heartbeat:
+        heartbeat()
+    # The final database write is fenced by the lease token. An expired worker
+    # may finish reading media but cannot replace newer candidates.
+    if game.worker_token:
+        with transaction.atomic():
+            locked = Game.objects.select_for_update().get(pk=game.pk)
+            if locked.state != Game.State.ANALYZING or locked.worker_token != game.worker_token:
+                raise WorkerLeaseLost(f"Game {game.pk} analysis lease lost before commit.")
+            Candidate.objects.filter(
+                game=game, source="audio_peak", review="pending").delete()
+            Candidate.objects.bulk_create([
+                Candidate(game=game, start_seconds=start, end_seconds=end,
+                          source="audio_peak", energy_score=energy)
+                for start, end, energy in proposals
+            ])
+            changed = Game.objects.filter(
+                pk=game.pk, state=Game.State.ANALYZING,
+                worker_token=game.worker_token).update(
+                    duration_seconds=duration, state=Game.State.READY, error="",
+                    worker_token="", worker_heartbeat_at=None)
+            if changed != 1:
+                raise WorkerLeaseLost(f"Game {game.pk} analysis lease lost during commit.")
+    else:
+        Candidate.objects.filter(game=game, source="audio_peak", review="pending").delete()
+        Candidate.objects.bulk_create([
+            Candidate(game=game, start_seconds=start, end_seconds=end,
+                      source="audio_peak", energy_score=energy)
+            for start, end, energy in proposals
+        ])
+        game.duration_seconds = duration
+        game.state = "ready"
+        game.error = ""
+        game.save(update_fields=["duration_seconds", "state", "error"])
     return len(proposals)
 
 
-def _run_ffmpeg(args):
-    proc = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                           "-y", *args], capture_output=True, text=True, timeout=3600)
-    if proc.returncode:
-        raise MediaError("FFmpeg 渲染失败：" + proc.stderr[-650:])
+def _run_ffmpeg(args, *, heartbeat=None, timeout=3600):
+    command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+               "-nostats", "-y", *args]
+    started = time.monotonic()
+    with tempfile.TemporaryFile(mode="w+b") as error_log:
+        proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=error_log)
+        try:
+            while proc.poll() is None:
+                if heartbeat:
+                    heartbeat()
+                if time.monotonic() - started > timeout:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    raise MediaError(f"FFmpeg 超时（{timeout} 秒），任务已停止。")
+                time.sleep(1)
+            if proc.returncode:
+                error_log.seek(0, 2)
+                size = error_log.tell()
+                error_log.seek(max(0, size - 4096))
+                detail = error_log.read().decode("utf-8", errors="replace")[-650:]
+                raise MediaError("FFmpeg 渲染失败：" + detail)
+        except BaseException:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+            raise
 
 
-def render_export(job):
+def _update_export_under_lease(job, **fields):
+    """Update progress only while this exact worker still owns the running job."""
+    if job.worker_token:
+        fields["worker_heartbeat_at"] = timezone.now()
+        changed = job.__class__.objects.filter(
+            pk=job.pk, state=job.State.RUNNING, worker_token=job.worker_token
+        ).update(**fields)
+        if changed != 1:
+            raise WorkerLeaseLost(f"Export {job.pk} lease lost; refusing stale progress.")
+        for key, value in fields.items():
+            setattr(job, key, value)
+    else:
+        for key, value in fields.items():
+            setattr(job, key, value)
+        job.save(update_fields=list(fields))
+
+
+def render_export(job, heartbeat=None):
+    if job.worker_token and heartbeat is None:
+        heartbeat = throttled_heartbeat(
+            lambda: heartbeat_export(job.pk, job.worker_token))
+        heartbeat(force=True)
     if job.plan:
         # Clip approval/time/source must match the frozen human review snapshot.
         clips = validate_plan(job)
@@ -141,15 +233,13 @@ def render_export(job):
         if len(clips) > 150:
             raise MediaError("一次最多渲染 150 个片段。")
     if job.clips_total != len(clips):
-        job.clips_total = len(clips)
-        job.save(update_fields=["clips_total"])
+        _update_export_under_lease(job, clips_total=len(clips))
     audio_mode = job.audio_mode if job.plan else "silent"
     if audio_mode not in ("silent", "original"):
         raise MediaError("音频输出配置无效。")
     input_has_audio = has_audio_stream(job.game.video.path) if audio_mode == "original" else False
     if audio_mode == "original" and not input_has_audio:
-        job.audio_fallback_used = True
-        job.save(update_fields=["audio_fallback_used"])
+        _update_export_under_lease(job, audio_fallback_used=True)
     with tempfile.TemporaryDirectory(prefix="basketcut-") as folder:
         root = Path(folder)
         parts = []
@@ -182,7 +272,7 @@ def render_export(job):
                             "-b:a", "128k"]
             else:
                 command += ["-an"]
-            _run_ffmpeg([*command, str(file)])
+            _run_ffmpeg([*command, str(file)], heartbeat=heartbeat)
             if audio_mode == "original" and not has_audio_stream(file):
                 # Odd recordings sometimes advertise an audio stream but yield
                 # no packets inside the selected timespan. Re-encode that part
@@ -199,21 +289,19 @@ def render_export(job):
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000",
                     "-ac", "2", "-b:a", "128k", str(file),
                 ]
-                _run_ffmpeg(silence_cmd)
-                job.audio_fallback_used = True
-                job.save(update_fields=["audio_fallback_used"])
+                _run_ffmpeg(silence_cmd, heartbeat=heartbeat)
+                _update_export_under_lease(job, audio_fallback_used=True)
                 if not has_audio_stream(file):
                     raise MediaError("片段缺失音轨且静音回退失败。")
             parts.append(file)
-            job.clips_done = index + 1
-            job.save(update_fields=["clips_done"])
+            _update_export_under_lease(job, clips_done=index + 1)
         concat = root / "concat.txt"
         concat.write_text("".join(f"file '{item.name}'\n" for item in parts), encoding="utf-8")
         result = root / "output.mp4"
         _run_ffmpeg([
             "-f", "concat", "-safe", "0", "-i", str(concat), "-c", "copy",
             "-movflags", "+faststart", str(result),
-        ])
+        ], heartbeat=heartbeat)
         if audio_mode == "original" and not has_audio_stream(result):
             # Last-resort guard if the concat muxer dropped all audio streams.
             # This is SILENCE, explicitly flagged; never claim source retained.
@@ -225,14 +313,30 @@ def render_export(job):
                 "-c:v", "copy", "-c:a", "aac", "-ar", "48000",
                 "-ac", "2", "-b:a", "128k", "-shortest",
                 "-movflags", "+faststart", str(repaired),
-            ])
+            ], heartbeat=heartbeat)
             result = repaired
-            job.audio_fallback_used = True
-            job.save(update_fields=["audio_fallback_used"])
+            _update_export_under_lease(job, audio_fallback_used=True)
             if not has_audio_stream(result):
                 raise MediaError("导出结果音轨回退失败。")
         with result.open("rb") as stream:
             job.video.save("highlight.mp4", File(stream), save=False)
-        job.state = "done"
-        job.error = ""
-        job.save(update_fields=["video", "state", "error"])
+        if job.worker_token:
+            stored_name = job.video.name
+            try:
+                changed = job.__class__.objects.filter(
+                    pk=job.pk, state=job.State.RUNNING, worker_token=job.worker_token
+                ).update(video=stored_name, state=job.State.DONE, error="",
+                         worker_token="", worker_heartbeat_at=None)
+            except BaseException:
+                job.video.storage.delete(stored_name)
+                raise
+            if changed != 1:
+                job.video.storage.delete(stored_name)
+                raise WorkerLeaseLost(
+                    f"Export {job.pk} lease lost before final commit; stale output discarded.")
+            job.refresh_from_db()
+        else:
+            # Direct service invocation remains supported for tests and one-off scripts.
+            job.state = "done"
+            job.error = ""
+            job.save(update_fields=["video", "state", "error"])

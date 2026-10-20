@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core.files import File
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from django.urls import reverse
 
 from .models import Candidate, Export, Game, Venue
@@ -185,10 +186,15 @@ class VideoFlowTests(TestCase):
         Candidate.objects.create(
             game=self.game, start_seconds=.5, end_seconds=2.5,
             review="approved", player_label="7号", source="manual")
-        job = Export.objects.create(game=self.game, player_label="7号")
+        job = Export.objects.create(
+            game=self.game, player_label="7号", state=Export.State.RUNNING,
+            worker_token="test-worker-lease", worker_started_at=timezone.now(),
+            worker_heartbeat_at=timezone.now())
         render_export(job)
         job.refresh_from_db()
         self.assertEqual(job.state, "done")
+        self.assertEqual(job.worker_token, "")
+        self.assertIsNone(job.worker_heartbeat_at)
         self.assertTrue(Path(job.video.path).exists())
         self.assertGreater(Path(job.video.path).stat().st_size, 500)
         self.assertGreater(probe_duration(job.video.path), 1)

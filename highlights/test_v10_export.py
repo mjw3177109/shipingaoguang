@@ -168,7 +168,7 @@ class ImmutableReviewedExportTests(TestCase):
         self.queue_once()
         job=Export.objects.get()
         # Mock *just FFmpeg*; run all real snapshot validations.
-        def fake_command(args):
+        def fake_command(args, *, heartbeat=None, timeout=3600):
             # Segment / concat output is always final positional argument.
             Path(args[-1]).write_bytes(b"synthetic mp4 bytes")
         with patch("highlights.services._run_ffmpeg",side_effect=fake_command):
