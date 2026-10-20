@@ -11,6 +11,7 @@ from pathlib import Path
 from django.core.files import File
 
 from .models import Candidate
+from .export_plan import validate_plan
 
 
 class MediaError(RuntimeError):
@@ -115,14 +116,22 @@ def _run_ffmpeg(args):
 
 
 def render_export(job):
-    qs = Candidate.objects.filter(game=job.game, review="approved")
-    if job.player_label:
-        qs = qs.filter(player_label=job.player_label)
-    clips = list(qs.order_by("start_seconds", "pk"))
-    if not clips:
-        raise MediaError("没有对应的已通过片段。")
-    if len(clips) > 150:
-        raise MediaError("一次最多渲染 150 个片段。")
+    if job.plan:
+        # Clip approval/time/source must match the frozen human review snapshot.
+        clips = validate_plan(job)
+    else:
+        # Compatibility for exports queued BEFORE upgrading to V1.0.
+        qs = Candidate.objects.filter(game=job.game, review="approved")
+        if job.player_label:
+            qs = qs.filter(player_label=job.player_label)
+        clips = list(qs.order_by("start_seconds", "pk"))
+        if not clips:
+            raise MediaError("没有对应的已通过片段。")
+        if len(clips) > 150:
+            raise MediaError("一次最多渲染 150 个片段。")
+    if job.clips_total != len(clips):
+        job.clips_total = len(clips)
+        job.save(update_fields=["clips_total"])
     with tempfile.TemporaryDirectory(prefix="basketcut-") as folder:
         root = Path(folder)
         parts = []
@@ -140,6 +149,8 @@ def render_export(job):
                 "-pix_fmt", "yuv420p", str(file),
             ])
             parts.append(file)
+            job.clips_done = index + 1
+            job.save(update_fields=["clips_done"])
         concat = root / "concat.txt"
         concat.write_text("".join(f"file '{item.name}'\n" for item in parts), encoding="utf-8")
         result = root / "output.mp4"

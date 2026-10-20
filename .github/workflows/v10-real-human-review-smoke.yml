@@ -1,0 +1,73 @@
+name: V1.0 Real CC0 Video Reviewed Export Snapshot Smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/v10-reviewed-export-release-candidate]
+    paths:
+      - "highlights/export_plan.py"
+      - "highlights/services.py"
+      - "highlights/views.py"
+      - "scripts/real_video_smoke.py"
+      - ".github/workflows/v10-real-human-review-smoke.yml"
+jobs:
+  real-human-review-cut:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "github-ci-v10-only-not-for-deployment"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FFmpeg and free CPU dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Download a CC0 basketball clip to temporary CI storage
+        run: |
+          mkdir -p /tmp/v10-video /tmp/v10-output
+          curl -fL --retry 3 --max-time 110 \
+            "https://upload.wikimedia.org/wikipedia/commons/2/2d/Basketpass.webm" \
+            -o /tmp/v10-video/Basketpass.webm
+          test "$(stat -c%s /tmp/v10-video/Basketpass.webm)" -gt 100000
+      - name: Run real video CPU analysis, simulated approval and FFmpeg export
+        run: |
+          python manage.py migrate --noinput
+          python scripts/real_video_smoke.py \
+            --video /tmp/v10-video/Basketpass.webm \
+            --out /tmp/v10-output \
+            --source-url "https://commons.wikimedia.org/wiki/File:Basketpass.webm" \
+            --license "CC0 1.0 - Benoît Prieur"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          output=Path("/tmp/v10-output")
+          report=json.loads((output/"report.json").read_text())
+          edl=json.loads((output/"edit_list.json").read_text())
+          assert report["export_success"] is True
+          assert report["immutable_export_plan_verified"] is True
+          assert report["queued_duplicate_suppressed"] is True
+          assert report["clips_completed"] == edl["plan"]["clip_count"] == 1
+          assert report["export_plan_sha256"] == edl["plan_sha256"]
+          assert edl["plan"]["human_review_required"] is True
+          assert edl["plan"]["automatic_scoring_claim"] is False
+          assert report["accuracy"].startswith("NOT MEASURED")
+          assert (output/"highlight.mp4").stat().st_size > 5000
+          print("REAL video rendered using frozen V1.0 review snapshot; accuracy NOT measured")
+          PY
+          ffprobe -v error -show_entries format=duration,size -of json \
+            /tmp/v10-output/highlight.mp4
+      - name: Publish actual output, snapshot and honest audit only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v10-real-video-reviewed-export-technical-demo
+          path: |
+            /tmp/v10-output/report.json
+            /tmp/v10-output/edit_list.json
+            /tmp/v10-output/highlight.mp4
+            /tmp/v10-output/preview.jpg
+          retention-days: 7
+          if-no-files-found: warn

@@ -1,6 +1,7 @@
 import time
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
+from django.utils import timezone
 
 from highlights.models import Export, Game, BallFrameSuggestion
 from highlights.services import analyze_game, render_export
@@ -62,7 +63,8 @@ class Command(BaseCommand):
             return True
         export = Export.objects.filter(state="queued").select_related("game").order_by("created_at").first()
         if export:
-            if not Export.objects.filter(pk=export.pk, state="queued").update(state="running"):
+            if not Export.objects.filter(pk=export.pk, state="queued").update(
+                    state="running",worker_started_at=timezone.now(),clips_done=0):
                 return True
             try:
                 render_export(export)

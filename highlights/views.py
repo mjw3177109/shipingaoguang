@@ -14,6 +14,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .models import Candidate, Export, Game, Venue, ShotAnnotation
 from .services import MediaError, probe_duration
+from .export_plan import PlanError, create_plan, validate_plan, export_metadata
 from .vision.events import validate_hoops
 
 
@@ -161,15 +162,79 @@ def review_candidate(request, pk, candidate_id):
 def queue_export(request, pk):
     game = _game(request, pk)
     label = request.POST.get("player_label", "").strip()[:100]
-    qs = game.candidates.filter(review="approved")
-    if label:
-        qs = qs.filter(player_label=label)
-    if not qs.exists():
-        messages.error(request, "找不到匹配的已通过片段，请先审核。")
-    else:
-        Export.objects.create(game=game, player_label=label)
-        messages.success(request, "渲染任务已排队，完成后将出现在下载列表。")
+    try:
+        with transaction.atomic():
+            # Serializes competing export requests on Postgres (SQLite used in CI).
+            Game.objects.select_for_update().get(pk=game.pk)
+            plan, digest = create_plan(game, label)
+            active = Export.objects.filter(game=game, player_label=label,
+                plan_sha256=digest, state__in=("queued", "running")).exists()
+            if active:
+                messages.info(request, "相同镜头已在渲染队列中，没有重复提交。")
+            else:
+                Export.objects.create(game=game, player_label=label,
+                    plan=plan, plan_sha256=digest,
+                    clips_total=plan["clip_count"])
+                messages.success(request, f"已锁定 {plan['clip_count']} 条人工通过的镜头并排队。")
+    except (PlanError, ValueError, OSError) as exc:
+        messages.error(request, f"无法创建导出任务：{exc}")
     return redirect("game", pk=pk)
+
+
+@login_required
+@require_POST
+def cancel_export(request, pk, export_id):
+    game = _game(request, pk)
+    updated = Export.objects.filter(pk=export_id,game=game,
+                                    state="queued").update(state="cancelled")
+    if updated:
+        messages.success(request, "未开始的导出任务已取消。")
+    else:
+        messages.error(request, "只能取消仍在等待的导出任务；运行中的任务不可直接终止。")
+    return redirect("game",pk=pk)
+
+
+@login_required
+@require_POST
+def retry_export(request, pk, export_id):
+    game = _game(request, pk)
+    original = get_object_or_404(Export, game=game, pk=export_id)
+    if original.state!="failed" or original.attempt>=3 or not original.plan:
+        messages.error(request, "只允许重试失败的 V1.0 导出，最多尝试三次。")
+        return redirect("game",pk=pk)
+    try:
+        with transaction.atomic():
+            Game.objects.select_for_update().get(pk=game.pk)
+            # The original snapshot is always retained. Reject later revoked
+            # approvals or changed clip times; user may then queue a NEW cut.
+            validate_plan(original)
+            duplicated = Export.objects.filter(
+                game=game,plan_sha256=original.plan_sha256,
+                state__in=("queued","running")).exists()
+            if duplicated:
+                messages.info(request,"同一导出计划已经在队列中。")
+            else:
+                Export.objects.create(game=game,player_label=original.player_label,
+                    plan=original.plan,plan_sha256=original.plan_sha256,
+                    clips_total=original.plan["clip_count"],
+                    attempt=original.attempt+1,retry_of=original)
+                messages.success(request,"已保留原审核快照并建立新的重试任务。")
+    except (PlanError, ValueError, OSError) as exc:
+        messages.error(request,f"无法重试：{exc}")
+    return redirect("game",pk=pk)
+
+
+@login_required
+@require_GET
+def export_manifest(request, pk, export_id):
+    game = _game(request, pk)
+    item = get_object_or_404(Export, game=game, pk=export_id)
+    response = JsonResponse(export_metadata(item),
+                            json_dumps_params={"ensure_ascii":False})
+    response["Cache-Control"] = "private, no-store"
+    response["Content-Disposition"] = (
+        f'attachment; filename="game-{game.pk}-export-{item.pk}-edit-list.json"')
+    return response
 
 
 @login_required

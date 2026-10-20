@@ -28,7 +28,7 @@
 <label>结束（秒）<input type="number" step=".1" min="0" name="end" placeholder="72" required></label></div>
 <label>球员标识（可空）<input name="player_label" maxlength="100" placeholder="例如：7号 / 王同学"></label>
 <button class="secondary">添加候选</button></form>
-<hr><h2>生成高光视频</h2><p class="muted small">只使用标记为“通过”的镜头；不填球员则生成全场混剪。</p>
+<hr><h2>V1.0 · 生成已审核高光视频</h2><p class="muted small">只使用人工“通过”的镜头；导出时冻结镜头清单。如果稍后修改或撤销审核，旧队列会安全失败，需重新提交。当前 720P/30fps **无声**，不会声称识别到进球。</p>
 <form method="post" action="{% url 'queue_export' game.pk %}" class="stack">{% csrf_token %}
 <label>仅输出某球员（可空）<input name="player_label" maxlength="100" placeholder="与下方审核里的球员标识一致"></label>
 <button class="primary">加入渲染队列</button></form>
@@ -87,10 +87,17 @@
 {% empty %}<div class="empty">暂无候选，点击上方分析或手动添加；安静的进球可能不会被音量算法发现。</div>{% endfor %}
 </section>
 <section class="panel"><div class="section-bar"><h2>导出记录</h2><button class="ghost" onclick="location.reload()" type="button">刷新任务状态</button></div>
-<div class="table-scroll"><table><thead><tr><th>范围</th><th>状态</th><th>创建时间</th><th>结果</th></tr></thead><tbody>
-{% for item in exports %}<tr><td>{{ item.player_label|default:"全场集锦" }}</td><td>{{ item.get_state_display }}</td>
-<td>{{ item.created_at|date:"m-d H:i" }}</td><td>{% if item.state == 'done' %}<a class="inline-link" href="{% url 'export_video' game.pk item.pk %}">下载 MP4 ↓</a>
-{% elif item.state == 'failed' %}<span class="error-text">{{ item.error }}</span>{% else %}等待 Worker{% endif %}</td></tr>
+<div class="table-scroll"><table><thead><tr><th>范围</th><th>状态 / 进度</th><th>创建时间</th><th>结果 / 操作</th></tr></thead><tbody>
+{% for item in exports %}<tr><td>{{ item.player_label|default:"全场集锦" }}</td><td>{{ item.get_state_display }} {% if item.clips_total %}<span class="muted small">· {{ item.clips_done }}/{{ item.clips_total }} 段</span>{% endif %}{% if item.attempt > 1 %}<span class="muted small">· 第 {{ item.attempt }} 次尝试</span>{% endif %}</td>
+<td>{{ item.created_at|date:"m-d H:i" }}</td><td>
+{% if item.state == 'done' %}<a class="inline-link" href="{% url 'export_video' game.pk item.pk %}">下载 MP4 ↓</a>
+{% elif item.state == 'failed' %}<span class="error-text">{{ item.error }}</span>
+{% if item.plan and item.attempt < 3 %}<form method="post" action="{% url 'retry_export' game.pk item.pk %}">{% csrf_token %}<button class="secondary" type="submit">按原审核快照重试（第 {{ item.attempt }} 次后）</button></form>{% endif %}
+{% elif item.state == 'queued' %}<form method="post" action="{% url 'cancel_export' game.pk item.pk %}">{% csrf_token %}<button class="ghost" type="submit">取消排队</button></form>
+{% elif item.state == 'cancelled' %}<span class="muted small">已取消</span>
+{% else %}<span class="muted small">后台处理中</span>{% endif %}
+{% if item.plan %}<a class="inline-link" href="{% url 'export_manifest' game.pk item.pk %}">下载可追溯剪辑清单 JSON ↓</a>{% else %}<span class="muted small">旧版导出</span>{% endif %}
+</td></tr>
 {% empty %}<tr><td colspan="4" class="muted">暂无导出任务。</td></tr>{% endfor %}
 </tbody></table></div></section>
 <section class="delete-area"><form method="post" action="{% url 'delete_game' game.pk %}" onsubmit="return confirm('确定永久删除这场比赛及其本地录像、集锦吗？不可恢复。')">{% csrf_token %}<button class="danger-button" type="submit">删除比赛及录像</button></form></section>
