@@ -25,7 +25,7 @@ from django.test import Client
 from django.urls import reverse
 from highlights.management.commands.runworker import Command
 from highlights.models import Candidate, Export, Game, Venue
-from highlights.services import probe_duration
+from highlights.services import probe_duration, has_audio_stream
 
 
 def _hash(path):
@@ -95,21 +95,48 @@ def main():
     })
     if response.status_code != 302 or game.candidates.get(pk=selected.pk).review != "approved":
         raise RuntimeError("Review endpoint failed")
-    response = web.post(reverse("queue_export", args=[game.pk]), {"player_label": ""})
+    response = web.post(reverse("queue_export", args=[game.pk]), {"player_label": "", "audio_mode": "original"})
     if response.status_code != 302:
         raise RuntimeError("Export queue endpoint failed")
+    job = Export.objects.filter(game=game).latest("pk")
+    if not job.plan or job.plan.get("clip_count") != 1 or len(job.plan_sha256) != 64:
+        raise RuntimeError("V1.0 must freeze exactly one approved clip before rendering")
+    manifest_response = web.get(reverse("export_manifest", args=[game.pk, job.pk]))
+    if manifest_response.status_code != 200:
+        raise RuntimeError("Owner-only edit decision list download failed")
+    edit_list = manifest_response.json()
+    if edit_list["plan_sha256"] != job.plan_sha256 or edit_list["plan"]["clips"][0]["candidate_id"] != selected.pk:
+        raise RuntimeError("V1.0 immutable snapshot mismatch")
+    # Double click is harmless: no duplicate queued export for same selection.
+    web.post(reverse("queue_export", args=[game.pk]), {"player_label": "", "audio_mode": "original"})
+    if Export.objects.filter(game=game).count() != 1:
+        raise RuntimeError("V1.0 duplicate click enqueued multiple exports")
     if not worker._process_one():
         raise RuntimeError("Export worker found no task")
-    job = Export.objects.filter(game=game).latest("pk")
+    job.refresh_from_db()
     if job.state != Export.State.DONE or not job.video:
         raise RuntimeError("FFmpeg export failure: " + job.error)
     highlight = output / "highlight.mp4"
     shutil.copyfile(job.video.path, highlight)
     final_duration = probe_duration(highlight)
+    if not has_audio_stream(highlight):
+        raise RuntimeError("V1.0 requested original audio but final MP4 has no audio track")
     subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
                     "-y", "-ss", str(min(.5, final_duration/2)), "-i", str(highlight),
                     "-frames:v", "1", str(output/"preview.jpg")], timeout=80, check=True)
+    if job.clips_done != 1 or job.clips_total != 1:
+        raise RuntimeError("V1.0 rendered clip progress did not complete")
+    (output/"edit_list.json").write_text(
+        json.dumps(edit_list,ensure_ascii=False,indent=2),encoding="utf-8")
     report = {
+        "output_has_audio": True,
+        "output_audio_mode": job.audio_mode,
+        "audio_fallback_used": job.audio_fallback_used,
+        "immutable_export_plan_verified": True,
+        "export_plan_sha256": job.plan_sha256,
+        "queued_duplicate_suppressed": True,
+        "clips_completed": job.clips_done,
+        "export_human_review_in_test": "SIMULATED, not a real expert",
         "source": args.source_url, "license": args.license,
         "source_sha256": _hash(src), "source_bytes": src.stat().st_size,
         "original_duration_seconds": round(video_duration, 3),

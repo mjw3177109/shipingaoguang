@@ -76,12 +76,24 @@ class Export(models.Model):
         RUNNING = "running", "渲染中"
         DONE = "done", "已完成"
         FAILED = "failed", "失败"
+        CANCELLED = "cancelled", "已取消"
 
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="exports")
     player_label = models.CharField(max_length=100, blank=True)
+    audio_mode = models.CharField(max_length=16, default="silent",
+                                  choices=[("silent","无声"),("original","保留原声")])
     state = models.CharField(max_length=16, choices=State.choices, default=State.QUEUED)
     video = models.FileField(upload_to=export_path, blank=True)
     error = models.TextField(blank=True)
+    plan = models.JSONField(default=dict, blank=True)
+    plan_sha256 = models.CharField(max_length=64, blank=True)
+    retry_of = models.ForeignKey("self", null=True, blank=True,
+                                 on_delete=models.SET_NULL, related_name="retry_attempts")
+    attempt = models.PositiveSmallIntegerField(default=1)
+    worker_started_at = models.DateTimeField(null=True, blank=True)
+    clips_done = models.PositiveSmallIntegerField(default=0)
+    clips_total = models.PositiveSmallIntegerField(default=0)
+    audio_fallback_used = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
