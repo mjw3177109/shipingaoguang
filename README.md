@@ -235,3 +235,11 @@ docker compose logs -f worker
 - 自动状态轮询在没有活跃任务时停止；用户可点击“立即刷新任务状态”手动查询，且不会重新载入视频。
 
 详情见 [V1.2 实时任务与上传体验说明](docs/V12_LIVE_TASK_UI.md)。这不改变 V1.0 的人工审核原则，也不代表长视频商业负载已完成验收。
+
+## V1.2 · 媒体资源保护、租户配额与健康检查
+
+V1.2 为免费 CPU 剪辑系统增加上传与渲染前的磁盘空间预检，按账号限制原始录像存储额度和并发活跃导出队列，并提供 Web / 数据库 / 存储 / Worker 心跳状态接口。默认媒体盘预留 1 GiB，每账号原录像总量 20 GiB，每账号最多 4 个排队或运行中的导出任务。
+
+健康状态 GET 接口：/health/live、/health/ready、/health/worker（只返回 204 或 503，无敏感数据）。Docker Compose 增加 Web/Worker 健康检查。支持 python manage.py workerstatus --check-worker。
+
+这些是应用层保护，非操作系统硬盘配额或商业级高可用保证。详见 docs/V12_RESOURCE_HEALTH.md。

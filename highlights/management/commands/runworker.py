@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from highlights.models import Candidate, Export, Game, BallFrameSuggestion
 from highlights.services import analyze_game, render_export
+from highlights.worker_health import pulse_worker
 from highlights.vision.cpu import scan_cpu_video
 from highlights.vision.annotation_sampler import scan_annotation_frames
 from highlights.worker_leases import (
@@ -39,6 +40,7 @@ class Command(BaseCommand):
         self.stdout.write(
             f"BasketCut worker running (stale_after={self.stale_after_seconds}s, "
             f"max_recoveries={self.max_recoveries})")
+        pulse_worker(started=True)
         while True:
             close_old_connections()
             try:
@@ -46,6 +48,7 @@ class Command(BaseCommand):
             except Exception as exc:
                 self.stderr.write(f"Unexpected worker error: {type(exc).__name__}: {exc}")
                 ran = False
+            pulse_worker(completed=bool(ran))
             if options["once"]:
                 break
             if not ran:
@@ -138,7 +141,7 @@ class Command(BaseCommand):
             if not claimed:
                 return True
             game.refresh_from_db()
-            heartbeat = throttled_heartbeat(lambda: heartbeat_game(game.pk, token))
+            heartbeat = throttled_heartbeat(lambda: (heartbeat_game(game.pk, token), pulse_worker()))
             try:
                 heartbeat(force=True)
                 if game.analysis_engine == "cpu":
@@ -194,7 +197,7 @@ class Command(BaseCommand):
             if not claimed:
                 return True
             export.refresh_from_db()
-            heartbeat = throttled_heartbeat(lambda: heartbeat_export(export.pk, token))
+            heartbeat = throttled_heartbeat(lambda: (heartbeat_export(export.pk, token), pulse_worker()))
             try:
                 heartbeat(force=True)
                 render_export(export, heartbeat=heartbeat)
@@ -224,7 +227,7 @@ class Command(BaseCommand):
                 return True
             queued.refresh_from_db()
             heartbeat = throttled_heartbeat(
-                lambda: heartbeat_sampling(queued.pk, token))
+                lambda: (heartbeat_sampling(queued.pk, token), pulse_worker()))
             try:
                 heartbeat(force=True)
                 outcome = scan_annotation_frames(

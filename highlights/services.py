@@ -16,6 +16,7 @@ from django.utils import timezone
 from .models import Candidate, Game
 from .export_plan import validate_plan
 from .worker_leases import WorkerLeaseLost, heartbeat_export, throttled_heartbeat
+from .operations import export_temp_bytes, require_media_space
 
 
 class MediaError(RuntimeError):
@@ -232,6 +233,10 @@ def render_export(job, heartbeat=None):
             raise MediaError("没有对应的已通过片段。")
         if len(clips) > 150:
             raise MediaError("一次最多渲染 150 个片段。")
+    # Budget for temporary clips, final output and optional AAC fallback.
+    # This is fail-closed preflight, not an OS disk reservation.
+    require_media_space(export_temp_bytes(sum(
+        clip.end_seconds - clip.start_seconds for clip in clips)))
     if job.clips_total != len(clips):
         _update_export_under_lease(job, clips_total=len(clips))
     audio_mode = job.audio_mode if job.plan else "silent"

@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from highlights.models import Export, Game
+from highlights.worker_health import worker_is_alive
 
 
 class Command(BaseCommand):
@@ -19,6 +20,8 @@ class Command(BaseCommand):
                             help="Print machine-readable JSON.")
         parser.add_argument("--check-stale", action="store_true",
                             help="Exit non-zero when a stale running task is detected.")
+        parser.add_argument("--check-worker", action="store_true",
+                            help="Exit non-zero when the worker heartbeat is unavailable or stale.")
 
     @staticmethod
     def _stale_filter(heartbeat, started, cutoff):
@@ -58,6 +61,11 @@ class Command(BaseCommand):
                 "failed": Game.objects.filter(ball_sampling_state="failed").count(),
             },
         }
+        alive, age_seconds = worker_is_alive()
+        data["worker"] = {
+            "alive": alive,
+            "age_seconds": age_seconds,
+        }
         stale_total = sum(group["stale_running"] for key, group in data.items()
                           if key in ("analysis","exports","annotation_sampling"))
         data["stale_total"] = stale_total
@@ -66,6 +74,9 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f"BasketCut worker queue snapshot · {data['checked_at']}")
             self.stdout.write(f"Stale threshold: {stale_after}s · stale tasks: {stale_total}")
+            self.stdout.write(
+                f"Worker heartbeat: {'OK' if alive else 'OFFLINE'} "
+                f"(age={age_seconds if age_seconds is not None else 'unknown'}s)")
             for key in ("analysis","exports","annotation_sampling"):
                 group=data[key]
                 self.stdout.write(
@@ -73,3 +84,5 @@ class Command(BaseCommand):
                     f"stale={group['stale_running']} failed={group['failed']}")
         if options["check_stale"] and stale_total:
             raise CommandError(f"Detected {stale_total} stale running task(s); inspect runworker logs.")
+        if options["check_worker"] and not alive:
+            raise CommandError("CPU Worker heartbeat is absent or stale. Restart/check the worker container.")

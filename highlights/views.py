@@ -8,6 +8,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.contrib.auth import get_user_model
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -16,6 +17,8 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .models import Candidate, Export, Game, Venue, ShotAnnotation
 from .services import MediaError, probe_duration
+from .operations import InsufficientStorage, require_media_space, owner_raw_media_bytes
+from .worker_health import worker_is_alive
 from .export_plan import PlanError, create_plan, validate_plan, export_metadata
 from .vision.events import validate_hoops
 
@@ -76,8 +79,17 @@ def upload_game(request):
     if incoming.size > settings.MAX_UPLOAD_BYTES or incoming.size == 0:
         messages.error(request, "文件不能为空或超过当前配置的上传限制。")
         return redirect("dashboard")
-    game = Game(venue=venue, title=title, video=incoming)
-    game.save()
+    try:
+        with transaction.atomic():
+            get_user_model().objects.select_for_update().get(pk=request.user.pk)
+            if owner_raw_media_bytes(request.user) + incoming.size > settings.OWNER_MAX_RAW_BYTES:
+                raise InsufficientStorage("该账号的原始录像存储额度已满，请删除旧录像或联系管理员。")
+            require_media_space(incoming.size)
+            game = Game(venue=venue, title=title, video=incoming)
+            game.save()
+    except (InsufficientStorage, OSError, ValueError) as exc:
+        messages.error(request, str(exc))
+        return redirect("dashboard")
     try:
         game.duration_seconds = probe_duration(game.video.path)
         game.save(update_fields=["duration_seconds"])
@@ -97,7 +109,10 @@ def game_detail(request, pk):
     candidates = game.candidates.all()
     annotations = game.shot_annotations.all()
     exports = game.exports.order_by("-created_at")[:20]
-    return render(request, "game.html", {"game": game, "candidates": candidates, "exports": exports, "annotations": annotations})
+    worker_online, _ = worker_is_alive()
+    return render(request, "game.html", {
+        "game": game, "candidates": candidates, "exports": exports,
+        "annotations": annotations, "worker_online": worker_online})
 
 
 @login_required
@@ -116,6 +131,7 @@ def task_status(request, pk):
     response = JsonResponse({
         "checked_at": timezone.now().isoformat(),
         "active": active,
+        "worker_online": worker_is_alive()[0],
         "game_state": game.state,
         "game_state_label": game.get_state_display(),
         "game_error": game.error,
@@ -216,6 +232,12 @@ def queue_export(request, pk):
             if active:
                 messages.info(request, "相同镜头已在渲染队列中，没有重复提交。")
             else:
+                get_user_model().objects.select_for_update().get(pk=request.user.pk)
+                active_count = Export.objects.filter(
+                    game__venue__owner=request.user,
+                    state__in=(Export.State.QUEUED, Export.State.RUNNING)).count()
+                if active_count >= settings.OWNER_MAX_ACTIVE_EXPORTS:
+                    raise PlanError("该账号待处理导出任务已达上限，请先完成或取消旧任务。")
                 Export.objects.create(game=game, player_label=label,audio_mode=audio_mode,
                     plan=plan, plan_sha256=digest,
                     clips_total=plan["clip_count"])

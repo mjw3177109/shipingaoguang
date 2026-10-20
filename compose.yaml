@@ -27,6 +27,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5).close()"]
+      interval: 20s
+      timeout: 6s
+      retries: 3
+      start_period: 75s
     command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn basketcut.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 180"
   worker:
     build: .
@@ -40,6 +46,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "workerstatus", "--check-worker"]
+      interval: 25s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     command:
       - python
       - manage.py
