@@ -16,6 +16,10 @@ jobs:
           cache: pip
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Check Docker Compose configuration
+        env:
+          POSTGRES_PASSWORD: ci-only-placeholder
+        run: cp .env.example .env && docker compose -f compose.yaml config --quiet
       - run: python manage.py check
       - run: python manage.py collectstatic --noinput
       - run: python manage.py makemigrations --check --dry-run

@@ -159,3 +159,14 @@ class BallFrameSuggestion(models.Model):
         ordering = ["time_seconds", "id"]
         constraints = [models.UniqueConstraint(fields=["game","time_seconds"],
                           name="unique_suggested_ball_frame")]
+
+
+class WorkerPulse(models.Model):
+    """Single CPU worker liveness record, never containing personal media data."""
+    key = models.CharField(max_length=32, unique=True, default="cpu-primary")
+    last_seen_at = models.DateTimeField()
+    started_at = models.DateTimeField()
+    task_count = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return self.key

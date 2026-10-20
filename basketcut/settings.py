@@ -60,6 +60,16 @@ LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(4 * 1024**3)))
+# V1.2: local media disk reserve and per-owner raw-video soft quota.
+MEDIA_MIN_FREE_BYTES = int(os.getenv("MEDIA_MIN_FREE_BYTES", str(1024**3)))
+OWNER_MAX_RAW_BYTES = int(os.getenv("OWNER_MAX_RAW_BYTES", str(20 * 1024**3)))
+OWNER_MAX_ACTIVE_EXPORTS = int(os.getenv("OWNER_MAX_ACTIVE_EXPORTS", "4"))
+EXPORT_TEMP_BYTES_PER_SECOND = int(os.getenv("EXPORT_TEMP_BYTES_PER_SECOND", str(3 * 1024**2)))
+WORKER_HEALTH_MAX_AGE_SECONDS = int(os.getenv("WORKER_HEALTH_MAX_AGE_SECONDS", "120"))
+if min(MEDIA_MIN_FREE_BYTES, OWNER_MAX_RAW_BYTES, EXPORT_TEMP_BYTES_PER_SECOND,
+       WORKER_HEALTH_MAX_AGE_SECONDS, OWNER_MAX_ACTIVE_EXPORTS) < 0:
+    raise ImproperlyConfigured("Operational resource settings cannot be negative")
+
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024**2
 DATA_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024**2
 SESSION_COOKIE_HTTPONLY = True
