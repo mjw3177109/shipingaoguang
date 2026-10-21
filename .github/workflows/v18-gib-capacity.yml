@@ -181,6 +181,7 @@ jobs:
             highlights/migrations/0014_media_capacity_lock.py \
             highlights/test_v18_capacity.py \
             highlights/test_v18_postgres.py \
+            highlights/test_v17_postgres.py \
             scripts/v18_gib_http_probe.py \
             .github/workflows/v18-gib-capacity.yml \
             docs/V18_GIB_CAPACITY_ACCEPTANCE.md; do
@@ -191,7 +192,7 @@ jobs:
             '# BasketCut V1.8 changed-only incremental patch' \
             'Base: V1.7 main. Extract at repository root, keeping subpaths.' \
             'Modified files: models.py, operations.py, resumable_views.py, views.py, cleanup_resumable.py.' \
-            'Remaining 6 files are newly added.' \
+            'Also updated highlights/test_v17_postgres.py fixture seed. Remaining 6 files are new.' \
             'Apply Django migrations. Review docs/V18_GIB_CAPACITY_ACCEPTANCE.md.' \
             '2GiB CI is padded synthetic data; not 2GiB authentic basketball.' \
             > /tmp/basketcut-v18/patch/INSTALL_V18.md
