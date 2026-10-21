@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from highlights.models import ResumableUpload
 from highlights.resumable import safe_unlink
+from highlights.operations import lock_media_admission
 
 
 class Command(BaseCommand):
@@ -32,6 +33,7 @@ class Command(BaseCommand):
                 cleaned += 1
                 continue
             with transaction.atomic():
+                lock_media_admission()
                 session = ResumableUpload.objects.select_for_update().filter(pk=identifier).first()
                 if session is None or session.expires_at > timezone.now():
                     continue

@@ -62,3 +62,56 @@ def owner_raw_media_bytes(owner):
                 raise InsufficientStorage(
                     "已有录像无法统计存储额度，请联系管理员检查媒体文件。") from exc
     return amount
+
+
+def lock_media_admission():
+    """Acquire singleton PostgreSQL row lock INSIDE transaction.atomic.
+
+    Required before creating/advancing/cancelling a staged upload and before
+    legacy media writes. Fail closed if migration did not seed the row.
+    SQLite is only supported for isolated single-process development.
+    """
+    from .models import MediaCapacityLock
+    return MediaCapacityLock.objects.select_for_update().get(pk=1)
+
+
+def pending_staging_bytes(*, excluding_upload_id=None):
+    """Remaining promised bytes across all active owners, without physical claims."""
+    from django.utils import timezone
+    from .models import ResumableUpload
+
+    active = ResumableUpload.objects.filter(
+        state=ResumableUpload.State.RECEIVING,
+        expires_at__gt=timezone.now())
+    if excluding_upload_id is not None:
+        active = active.exclude(pk=excluding_upload_id)
+    total = 0
+    for session in active.only("byte_size", "received_bytes"):
+        if session.received_bytes > session.byte_size:
+            raise InsufficientStorage("Inconsistent upload reservation accounting")
+        total += session.byte_size - session.received_bytes
+    return total
+
+
+def require_media_admission(additional_bytes, *, reserve_bytes=None):
+    """Conservative shared-volume admission, NOT a filesystem reservation.
+
+    Execute under lock_media_admission() in a DB transaction for mutations.
+    Unrelated processes, /tmp, migrations and multi-volume staging can race.
+    """
+    if type(additional_bytes) is not int or additional_bytes < 0:
+        raise ValueError("additional_bytes must be a nonnegative integer")
+    reserve = settings.MEDIA_MIN_FREE_BYTES if reserve_bytes is None else reserve_bytes
+    if type(reserve) is not int or reserve < 0:
+        raise ValueError("reserve_bytes must be a nonnegative integer")
+    promised = pending_staging_bytes()
+    available = media_disk_free_bytes()
+    if available < reserve + promised + additional_bytes:
+        raise InsufficientStorage(
+            "媒体空间不足：其他账号的未完成上传已预留空间，请重试或扩容。")
+    return {
+        "free_bytes_observed": available,
+        "promised_unwritten_bytes": promised,
+        "additional_bytes": additional_bytes,
+        "required_reserve_bytes": reserve,
+    }

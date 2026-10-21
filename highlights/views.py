@@ -17,7 +17,8 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .models import Candidate, Export, Game, Venue, ShotAnnotation
 from .services import MediaError, probe_duration
-from .operations import InsufficientStorage, require_media_space, owner_raw_media_bytes
+from .operations import (InsufficientStorage, require_media_admission,
+    lock_media_admission, owner_raw_media_bytes)
 from .worker_health import worker_is_alive
 from .export_plan import PlanError, create_plan, validate_plan, export_metadata
 from .vision.events import validate_hoops
@@ -81,10 +82,11 @@ def upload_game(request):
         return redirect("dashboard")
     try:
         with transaction.atomic():
+            lock_media_admission()
             get_user_model().objects.select_for_update().get(pk=request.user.pk)
             if owner_raw_media_bytes(request.user) + incoming.size + __import__("highlights.resumable", fromlist=["reserved_upload_bytes"]).reserved_upload_bytes(request.user) > settings.OWNER_MAX_RAW_BYTES:
                 raise InsufficientStorage("该账号的原始录像存储额度已满，请删除旧录像或联系管理员。")
-            require_media_space(incoming.size)
+            require_media_admission(incoming.size)
             game = Game(venue=venue, title=title, video=incoming)
             game.save()
     except (InsufficientStorage, OSError, ValueError) as exc:
