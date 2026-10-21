@@ -8,6 +8,7 @@ import argparse
 import json
 import subprocess
 import time
+import tempfile
 from pathlib import Path
 
 
@@ -37,15 +38,24 @@ def main():
     destination = Path(args.out).resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     before = time.monotonic()
-    subprocess.run([
-        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-y", "-stream_loop", "-1", "-i", str(source),
-        "-t", str(args.seconds), "-map", "0:v:0",
-        "-vf", "fps=2,scale=320:-2",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "35",
-        "-g", "2", "-pix_fmt", "yuv420p", "-an", "-movflags", "+faststart",
-        str(destination),
-    ], check=True, timeout=480)
+    # Transcode the short original only ONCE, then loop-copy packets.
+    # Otherwise FFmpeg would decode the same high-resolution source 100+ times,
+    # skewing the CPU stress measurement toward fixture generation.
+    with tempfile.TemporaryDirectory(prefix="basketcut-v14-fixture-") as work:
+        short = Path(work) / "short_low_res.mp4"
+        subprocess.run([
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+            "-y", "-i", str(source), "-map", "0:v:0",
+            "-vf", "fps=2,scale=320:-2",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "35",
+            "-g", "2", "-pix_fmt", "yuv420p", "-an", str(short),
+        ], check=True, timeout=180)
+        subprocess.run([
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+            "-y", "-stream_loop", "-1", "-i", str(short),
+            "-t", str(args.seconds), "-c", "copy",
+            "-movflags", "+faststart", str(destination),
+        ], check=True, timeout=180)
     resulting = probe(destination)
     if abs(resulting - args.seconds) > 0.8 or destination.stat().st_size < 10000:
         raise RuntimeError("Long stress fixture is not the specified duration")
