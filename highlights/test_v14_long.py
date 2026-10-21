@@ -118,3 +118,34 @@ class V14StreamingStoreTests(TestCase):
                 self.assertEqual(game.video.size, source.stat().st_size)
                 self.assertLessEqual(reader.largest, 1024 * 1024)
                 self.assertGreater(reader.largest, 0)
+
+
+class V14WorkerFailClosedTests(TestCase):
+    def test_worker_rejects_truncated_cpu_analysis_without_false_ready(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from highlights.management.commands.runworker import Command
+
+        with tempfile.TemporaryDirectory() as folder:
+            with override_settings(MEDIA_ROOT=folder):
+                user = get_user_model().objects.create_user("v14-failclosed")
+                venue = Venue.objects.create(owner=user, name="Fail-closed court")
+                game = Game.objects.create(
+                    venue=venue, title="Truncated source",
+                    video=SimpleUploadedFile("truncated.mp4", b"some raw bytes"),
+                    duration_seconds=7200, state=Game.State.QUEUED,
+                    analysis_engine="cpu")
+                incomplete = {
+                    "analysis": {"incomplete_scan": True, "coverage_ratio": .2},
+                    "video_duration_seconds": 7200,
+                    "candidates": [{
+                        "start_seconds": 2, "end_seconds": 9,
+                        "source": "cpu_ball_activity", "score": .7, "note": "unverified"
+                    }],
+                }
+                with patch("highlights.management.commands.runworker.scan_cpu_video",
+                           return_value=incomplete):
+                    self.assertTrue(Command()._process_one())
+                game.refresh_from_db()
+                self.assertEqual(game.state, Game.State.FAILED)
+                self.assertIn("不完整", game.error)
+                self.assertEqual(game.candidates.count(), 0)
