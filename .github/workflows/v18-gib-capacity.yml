@@ -1,0 +1,204 @@
+name: BasketCut V1.8 Actual 2GiB Upload and Global Media Admission
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "highlights/models.py"
+      - "highlights/migrations/0014_media_capacity_lock.py"
+      - "highlights/operations.py"
+      - "highlights/resumable_views.py"
+      - "highlights/views.py"
+      - "highlights/management/commands/cleanup_resumable.py"
+      - "highlights/test_v18_*.py"
+      - "scripts/v18_*.py"
+      - ".github/workflows/v18-gib-capacity.yml"
+      - "docs/V18_GIB_CAPACITY_ACCEPTANCE.md"
+  push:
+    branches: [main]
+    paths:
+      - "highlights/operations.py"
+      - "highlights/test_v18_*.py"
+      - "scripts/v18_*.py"
+      - ".github/workflows/v18-gib-capacity.yml"
+
+jobs:
+  actual-2gib-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "v18-isolated-gib-test-only"
+      DATABASE_URL: "sqlite:////tmp/basketcut-v18/db.sqlite3"
+      MEDIA_ROOT: "/tmp/basketcut-v18/media"
+      MEDIA_MIN_FREE_BYTES: "134217728"
+      MAX_UPLOAD_BYTES: "3221225472"
+      OWNER_MAX_RAW_BYTES: "5368709120"
+      BASKETCUT_V18_ISOLATED: "YES"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install FFmpeg and Python
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Verify migrations, unit regressions and isolated free disk
+        run: |
+          mkdir -p /tmp/basketcut-v18/media /tmp/basketcut-v18/out
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test \
+            highlights.test_v18_capacity \
+            highlights.test_v17_resumable \
+            highlights.test_v12_operational --verbosity 2
+          python - <<'PY'
+          import shutil
+          free=shutil.disk_usage("/tmp/basketcut-v18").free
+          print("initial_free_bytes",free)
+          assert free > 6 * 1024**3, "GiB test needs >6GiB runner free disk"
+          PY
+      - name: Create synthetic decodable short MP4 plus explicitly sparse tail
+        run: |
+          ffmpeg -nostdin -hide_banner -loglevel error -y \
+            -f lavfi -i "testsrc2=s=640x360:r=15" -t 20 \
+            -c:v libx264 -preset veryfast -crf 28 -pix_fmt yuv420p -movflags +faststart \
+            /tmp/basketcut-v18/input.mp4
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("/tmp/basketcut-v18/input.mp4")
+          original=p.stat().st_size
+          assert 100_000 < original < 10*1024**2
+          with p.open("ab") as f:
+              f.truncate(2*1024**3)
+          assert p.stat().st_size == 2*1024**3
+          print("source_type=synthetic_short_mp4_plus_zero_padding", "actual_bytes_to_transmit",p.stat().st_size)
+          PY
+      - name: Physically stream ALL 2GiB bytes via actual localhost HTTP
+        run: |
+          python scripts/v18_gib_http_probe.py \
+            --video /tmp/basketcut-v18/input.mp4 \
+            --out /tmp/basketcut-v18/out
+      - name: Enforce independent 2GiB transport report assertions
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("/tmp/basketcut-v18/out/v18_gib_http_audit.json").read_text())
+          size=2*1024**3
+          assert r["result"]=="PASS"
+          assert r["actual_total_file_bytes"]==size
+          assert r["actual_http_confirmed_chunk_bytes"]==size
+          assert r["server_and_client_full_sha256_equal"]
+          assert r["stored_file_sha256_verified_again"]
+          assert r["real_socket_aborted_in_second_chunk"]
+          assert r["final_server_offset"]==size
+          assert r["maximum_client_memory_chunk_bytes"]<=8*1024**2
+          assert r["peak_observed_gunicorn_master_plus_direct_workers_rss_bytes"]
+          assert not r["is_real_basketball_full_match"]
+          PY
+      - name: Keep source-free, private-path-free JSON proof only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v18-real-2gib-http-byte-transport
+          retention-days: 7
+          if-no-files-found: warn
+          path: /tmp/basketcut-v18/out/v18_gib_http_audit.json
+
+  real-postgres-shared-capacity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: basketcut
+          POSTGRES_USER: v18
+          POSTGRES_PASSWORD: v18_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U v18 -d basketcut"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "v18-postgres-isolated-only"
+      DATABASE_URL: "postgres://v18:v18_ci_only@127.0.0.1:5432/basketcut"
+      MEDIA_MIN_FREE_BYTES: "1048576"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install DB runtime
+        run: python -m pip install -r requirements.txt
+      - name: Check concurrent owners on real PostgreSQL row lock
+        run: |
+          mkdir -p /tmp/basketcut-v18-pg
+          set -o pipefail
+          python manage.py test highlights.test_v18_postgres \
+            highlights.test_v17_postgres --verbosity 2 \
+            2>&1 | tee /tmp/basketcut-v18-pg/pg_lock.log
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("/tmp/basketcut-v18-pg/pg_lock.log").read_text()
+          assert "Ran 2 tests" in s and "\nOK\n" in s
+          assert "skipped=" not in s
+          Path("/tmp/basketcut-v18-pg/pg_report.json").write_text(
+            '{"schema_version":1,"result":"PASS","real_postgresql":true,'
+            '"cross_owner_global_admission_lock_tested":true,'
+            '"physical_filesystem_quota_tested":false}')
+          PY
+      - name: Upload scoped locking evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v18-cross-tenant-postgresql-admission
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            /tmp/basketcut-v18-pg/pg_report.json
+            /tmp/basketcut-v18-pg/pg_lock.log
+
+  changed-only-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate changed-only ZIP (originals preserved by relative path)
+        run: |
+          mkdir -p /tmp/basketcut-v18/patch
+          for file in \
+            highlights/models.py \
+            highlights/operations.py \
+            highlights/resumable_views.py \
+            highlights/views.py \
+            highlights/management/commands/cleanup_resumable.py \
+            highlights/migrations/0014_media_capacity_lock.py \
+            highlights/test_v18_capacity.py \
+            highlights/test_v18_postgres.py \
+            highlights/test_v17_postgres.py \
+            scripts/v18_gib_http_probe.py \
+            .github/workflows/v18-gib-capacity.yml \
+            docs/V18_GIB_CAPACITY_ACCEPTANCE.md; do
+            mkdir -p "/tmp/basketcut-v18/patch/$(dirname "$file")"
+            cp "$file" "/tmp/basketcut-v18/patch/$file"
+          done
+          printf '%s\n' \
+            '# BasketCut V1.8 changed-only incremental patch' \
+            'Base: V1.7 main. Extract at repository root, keeping subpaths.' \
+            'Modified files: models.py, operations.py, resumable_views.py, views.py, cleanup_resumable.py.' \
+            'Also updated highlights/test_v17_postgres.py fixture seed. Remaining 6 files are new.' \
+            'Apply Django migrations. Review docs/V18_GIB_CAPACITY_ACCEPTANCE.md.' \
+            '2GiB CI is padded synthetic data; not 2GiB authentic basketball.' \
+            > /tmp/basketcut-v18/patch/INSTALL_V18.md
+          (cd /tmp/basketcut-v18/patch && zip -qr ../BasketCut_V1_8_PATCH.zip .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v18-changed-only-patch
+          retention-days: 7
+          path: /tmp/basketcut-v18/BasketCut_V1_8_PATCH.zip

@@ -198,3 +198,11 @@ class ResumableUpload(models.Model):
     class Meta:
         indexes = [models.Index(fields=["state", "expires_at"],
                                 name="hl_upload_expiry_idx")]
+
+
+class MediaCapacityLock(models.Model):
+    """Single PG row lock serializes cross-tenant media admission and pending-byte updates."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+
+    def __str__(self):
+        return "global-media-capacity-lock"

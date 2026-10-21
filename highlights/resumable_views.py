@@ -22,7 +22,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
 from .models import Game, Venue, ResumableUpload, video_path
-from .operations import InsufficientStorage, owner_raw_media_bytes, require_media_space
+from .operations import (InsufficientStorage, owner_raw_media_bytes,
+    require_media_admission, lock_media_admission)
 from .resumable import (
     CHUNK_MAX, VALID_VIDEO_SUFFIXES, extend_expiry, hash_file,
     prepare_append, reserved_upload_bytes, safe_unlink, session_path,
@@ -79,11 +80,12 @@ def start_upload(request):
     venue = get_object_or_404(Venue, pk=venue_id, owner=request.user)
     try:
         with transaction.atomic():
+            lock_media_admission()
             get_user_model().objects.select_for_update().get(pk=request.user.pk)
             if owner_raw_media_bytes(request.user) + reserved_upload_bytes(
                     request.user) + size > settings.OWNER_MAX_RAW_BYTES:
                 raise InsufficientStorage("Owner storage budget would be exceeded")
-            require_media_space(size)
+            require_media_admission(size)
             session = ResumableUpload(
                 owner=request.user, venue=venue, title=title.strip(),
                 filename=filename, byte_size=size, expected_sha256=digest)
@@ -112,6 +114,7 @@ def upload_status(request, upload_id):
         })
     # Serializing DELETE on PG prevents racing chunk append/finalize.
     with transaction.atomic():
+        lock_media_admission()
         session = get_object_or_404(
             ResumableUpload.objects.select_for_update(), pk=upload_id, owner=request.user)
         if session.state == ResumableUpload.State.COMPLETE:
@@ -139,6 +142,7 @@ def upload_chunk(request, upload_id):
         return reply({"error": "binary_content_type_required"}, 415)
 
     with transaction.atomic():
+        lock_media_admission()
         session = get_object_or_404(ResumableUpload.objects.select_for_update(),
                                     pk=upload_id, owner=request.user)
         if not _available(session):
@@ -149,7 +153,7 @@ def upload_chunk(request, upload_id):
             return reply({"error": "declared_size_exceeded"}, 413)
         try:
             path = prepare_append(session)
-            require_media_space(size)
+            require_media_admission(0)
             # A binary request never accesses request.body or multipart parsers.
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
@@ -182,6 +186,7 @@ def upload_chunk(request, upload_id):
 @require_POST
 def finish_upload(request, upload_id):
     with transaction.atomic():
+        lock_media_admission()
         session = get_object_or_404(ResumableUpload.objects.select_for_update(),
                                     pk=upload_id, owner=request.user)
         if session.state == ResumableUpload.State.COMPLETE and session.game_id:
@@ -198,7 +203,7 @@ def finish_upload(request, upload_id):
             return reply({"error": "sha256_mismatch"}, 422)
         try:
             duration = probe_duration(path)
-            require_media_space(0)
+            require_media_admission(0)
         except (MediaError, OSError, InsufficientStorage):
             return reply({"error": "invalid_media_or_disk"}, 422)
         owner = get_user_model().objects.select_for_update().get(pk=request.user.pk)
