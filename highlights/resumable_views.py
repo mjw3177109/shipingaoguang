@@ -6,6 +6,7 @@ POST /games/resumable/<uuid>/chunk/       binary chunk + X-Upload-Offset
 POST /games/resumable/<uuid>/finish/      verify SHA, duration and publish Game
 """
 import json
+import hashlib
 import os
 import re
 import uuid
@@ -70,7 +71,7 @@ def start_upload(request):
             raise ValueError()
         if type(size) is not int or not 1 <= size <= settings.MAX_UPLOAD_BYTES:
             raise ValueError()
-        if not isinstance(digest, str) or not re.fullmatch("[0-9a-f]{64}", digest):
+        if not isinstance(digest, str) or (digest and not re.fullmatch("[0-9a-f]{64}", digest)):
             raise ValueError()
     except (KeyError, ValueError, TypeError, json.JSONDecodeError):
         return reply({"error": "invalid_upload_metadata"}, 400)
@@ -124,6 +125,9 @@ def upload_status(request, upload_id):
 @login_required
 @require_POST
 def upload_chunk(request, upload_id):
+    declared_chunk_digest = request.headers.get("X-Chunk-SHA256", "")
+    if not re.fullmatch("[0-9a-f]{64}", declared_chunk_digest):
+        return reply({"error": "chunk_sha256_required"}, 400)
     raw_length = request.META.get("CONTENT_LENGTH", "")
     offset_raw = request.headers.get("X-Upload-Offset", "")
     if not raw_length.isdecimal() or not offset_raw.isdecimal():
@@ -151,14 +155,18 @@ def upload_chunk(request, upload_id):
             try:
                 with os.fdopen(fd, "ab", buffering=0) as out:
                     remaining = size
+                    chunk_digest = hashlib.sha256()
                     while remaining:
                         block = request.read(min(262144, remaining))
                         if not block:
                             raise OSError("Client disconnected before declared chunk length")
                         out.write(block)
+                        chunk_digest.update(block)
                         remaining -= len(block)
                     out.flush()
                     os.fsync(out.fileno())
+                    if chunk_digest.hexdigest() != declared_chunk_digest:
+                        return reply({"error": "chunk_sha256_mismatch", "offset": offset}, 422)
             except BaseException:
                 # Next attempt automatically truncates to committed DB offset.
                 raise
@@ -185,7 +193,8 @@ def finish_upload(request, upload_id):
         path = session_path(session)
         if not path.exists() or path.stat().st_size != session.byte_size:
             return reply({"error": "file_size_mismatch"}, 409)
-        if hash_file(path) != session.expected_sha256:
+        final_digest = hash_file(path)
+        if session.expected_sha256 and final_digest != session.expected_sha256:
             return reply({"error": "sha256_mismatch"}, 422)
         try:
             duration = probe_duration(path)
@@ -216,4 +225,5 @@ def finish_upload(request, upload_id):
             if target.exists() and not path.exists():
                 os.replace(target, path)
             raise
-    return reply({"state": "complete", "game_id": game.pk, "duration_seconds": duration})
+    return reply({"state": "complete", "game_id": game.pk,
+                  "duration_seconds": duration, "sha256": final_digest})
