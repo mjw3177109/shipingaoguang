@@ -230,10 +230,21 @@ http {{
     finally:
         if proxy is not None and proxy.poll() is None:
             os.killpg(proxy.pid, signal.SIGTERM)
-            proxy.wait(timeout=15)
+            try:
+                proxy.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                os.killpg(proxy.pid, signal.SIGKILL)
+                proxy.wait(timeout=8)
         if app.poll() is None:
             os.killpg(app.pid, signal.SIGTERM)
-            app.wait(timeout=15)
+            try:
+                app.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                # Gunicorn can keep Django/PostgreSQL workers draining after
+                # both uploads have already persisted and been hash-verified.
+                # Never fail the validated integration due to teardown.
+                os.killpg(app.pid, signal.SIGKILL)
+                app.wait(timeout=8)
         app_log.close()
         proxy_log.close()
 
