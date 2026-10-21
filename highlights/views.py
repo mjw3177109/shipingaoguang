@@ -82,7 +82,7 @@ def upload_game(request):
     try:
         with transaction.atomic():
             get_user_model().objects.select_for_update().get(pk=request.user.pk)
-            if owner_raw_media_bytes(request.user) + incoming.size > settings.OWNER_MAX_RAW_BYTES:
+            if owner_raw_media_bytes(request.user) + incoming.size + __import__("highlights.resumable", fromlist=["reserved_upload_bytes"]).reserved_upload_bytes(request.user) > settings.OWNER_MAX_RAW_BYTES:
                 raise InsufficientStorage("该账号的原始录像存储额度已满，请删除旧录像或联系管理员。")
             require_media_space(incoming.size)
             game = Game(venue=venue, title=title, video=incoming)
