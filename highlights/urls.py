@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import views, resumable_views
 
 urlpatterns = [
     path("", views.dashboard, name="dashboard"),
@@ -7,6 +7,10 @@ urlpatterns = [
     path("ball-campaign/report.json", views.ball_campaign_json, name="ball_campaign_json"),
     path("venues/new/", views.create_venue, name="create_venue"),
     path("games/upload/", views.upload_game, name="upload_game"),
+    path("games/resumable/", resumable_views.start_upload, name="resumable_start"),
+    path("games/resumable/<uuid:upload_id>/", resumable_views.upload_status, name="resumable_status"),
+    path("games/resumable/<uuid:upload_id>/chunk/", resumable_views.upload_chunk, name="resumable_chunk"),
+    path("games/resumable/<uuid:upload_id>/finish/", resumable_views.finish_upload, name="resumable_finish"),
     path("games/<int:pk>/", views.game_detail, name="game"),
     path("games/<int:pk>/tasks/status.json", views.task_status, name="task_status"),
     path("games/<int:pk>/analyze/", views.queue_analysis, name="queue_analysis"),

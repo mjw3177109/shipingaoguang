@@ -170,3 +170,31 @@ class WorkerPulse(models.Model):
 
     def __str__(self):
         return self.key
+
+
+class ResumableUpload(models.Model):
+    """Private, short-lived staging session; never a completed Game."""
+    class State(models.TextChoices):
+        RECEIVING = "receiving", "接收中"
+        COMPLETE = "complete", "已完成"
+        CANCELLED = "cancelled", "已取消"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                              related_name="basketcut_uploads")
+    venue = models.ForeignKey(Venue, on_delete=models.CASCADE, related_name="resumable_uploads")
+    title = models.CharField(max_length=180)
+    filename = models.CharField(max_length=180)
+    byte_size = models.PositiveBigIntegerField()
+    expected_sha256 = models.CharField(max_length=64)
+    received_bytes = models.PositiveBigIntegerField(default=0)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.RECEIVING)
+    game = models.ForeignKey(Game, null=True, blank=True, on_delete=models.SET_NULL,
+                             related_name="resumable_upload_records")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        indexes = [models.Index(fields=["state", "expires_at"],
+                                name="hl_upload_expiry_idx")]

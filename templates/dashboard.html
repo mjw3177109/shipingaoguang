@@ -6,12 +6,12 @@
 <form method="post" action="{% url 'create_venue' %}" class="stack">{% csrf_token %}
 <label>球馆名称<input name="name" maxlength="120" placeholder="例如：星河篮球馆" required></label>
 <button class="primary">创建球馆</button></form></section>
-<section class="panel"><h2>② 上传比赛视频</h2><p class="muted">MP4 / MOV / M4V / MKV / WEBM，最多按配置 4GB；上传时会先校验视频。</p>
+<section class="panel"><h2>② 上传比赛视频</h2><p class="muted">MP4 / MOV / M4V / MKV / WEBM，最多按配置 4GB；支持 8 MiB 分片、断线续传和逐片 SHA-256 校验。</p>
 <form id="upload-form" method="post" action="{% url 'upload_game' %}" enctype="multipart/form-data" class="stack">{% csrf_token %}
 <label>选择球馆<select name="venue_id" required>{% for venue in venues %}<option value="{{ venue.pk }}">{{ venue.name }}</option>{% empty %}<option disabled>请先创建球馆</option>{% endfor %}</select></label>
 <label>比赛名称<input name="title" maxlength="180" placeholder="周五 5V5 友谊赛" required></label>
 <label>比赛录像<input name="video" type="file" accept=".mp4,.m4v,.mov,.mkv,.webm" required></label>
-<button id="upload-submit" class="primary" {% if not venues %}disabled{% endif %}>上传录像</button>
+<button id="upload-submit" class="primary" {% if not venues %}disabled{% endif %}>开始 / 继续上传</button>
 <div id="upload-progress-wrap" class="upload-progress-wrap" style="display:none" aria-live="polite">
 <progress id="upload-progress" max="100" value="0"></progress>
 <span id="upload-progress-text" class="muted small">准备上传…</span></div></form></section>

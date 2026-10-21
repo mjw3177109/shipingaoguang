@@ -61,6 +61,7 @@ LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(4 * 1024**3)))
+RESUMABLE_CHUNK_MAX_BYTES = int(os.getenv("RESUMABLE_CHUNK_MAX_BYTES", str(8 * 1024**2)))
 # V1.2: local media disk reserve and per-owner raw-video soft quota.
 MEDIA_MIN_FREE_BYTES = int(os.getenv("MEDIA_MIN_FREE_BYTES", str(1024**3)))
 OWNER_MAX_RAW_BYTES = int(os.getenv("OWNER_MAX_RAW_BYTES", str(20 * 1024**3)))
