@@ -150,6 +150,38 @@ jobs:
                   "PostgreSQL concurrency separately tested in a different job"]},
               indent=2))
           PY
+      - name: Build changed-only V1.5 source patch
+        if: always()
+        run: |
+          mkdir -p /tmp/basketcut-v15/patch
+          for file in \
+            basketcut/settings.py \
+            highlights/upload_guard.py \
+            highlights/test_v15_postgres.py \
+            scripts/v15_http_probe.py \
+            scripts/v15_kill_probe.py \
+            .github/workflows/v15-production-reliability.yml \
+            docs/V15_PRODUCTION_RELIABILITY.md; do
+            mkdir -p "/tmp/basketcut-v15/patch/$(dirname "$file")"
+            cp "$file" "/tmp/basketcut-v15/patch/$file"
+          done
+          printf '%s\n' '# BasketCut V1.5 Incremental Patch' \
+            'Base: BasketCut V1.4 main.' \
+            'Place files under their repository-relative paths.' \
+            'Existing file changed: basketcut/settings.py.' \
+            'All other files are newly added.' \
+            'Run Backend CI + V1.5 CI; follow docs/V15_PRODUCTION_RELIABILITY.md.' \
+            'Do not mistake synthetic test clips for authorized complete matches.' \
+            > /tmp/basketcut-v15/patch/INSTALL_V15.md
+          (cd /tmp/basketcut-v15/patch && zip -q -r ../BasketCut_V1_5_PATCH.zip .)
+      - name: Upload V1.5 source patch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v15-changed-only-patch
+          retention-days: 7
+          path: /tmp/basketcut-v15/BasketCut_V1_5_PATCH.zip
+          if-no-files-found: warn
       - name: Upload exact proof from ephemeral runner
         if: always()
         uses: actions/upload-artifact@v4
