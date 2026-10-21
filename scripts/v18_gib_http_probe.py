@@ -12,6 +12,8 @@ import hashlib
 import http.client
 import json
 import os
+import re
+import shutil
 import secrets
 import signal
 import socket
@@ -38,11 +40,13 @@ from highlights.services import probe_duration
 
 HOST = "127.0.0.1"
 PORT = 18898
+NGINX_PORT = 18899
+REQUEST_PORT = PORT
 CHUNK = 8 * 1024 * 1024
 
 
 def request(method, path, *, body=None, cookie="", csrf="", headers=None, timeout=120):
-    conn = http.client.HTTPConnection(HOST, PORT, timeout=timeout)
+    conn = http.client.HTTPConnection(HOST, REQUEST_PORT, timeout=timeout)
     h = {"Cookie": cookie, "X-CSRFToken": csrf, **(headers or {})}
     if body is not None:
         h["Content-Length"] = str(len(body))
@@ -59,7 +63,7 @@ def request(method, path, *, body=None, cookie="", csrf="", headers=None, timeou
 
 def broken_upload(path, *, offset, total, digest, cookie, csrf):
     """Connect, announce whole chunk, send 1 MiB only, deliberately close socket."""
-    conn = http.client.HTTPConnection(HOST, PORT, timeout=15)
+    conn = http.client.HTTPConnection(HOST, REQUEST_PORT, timeout=15)
     conn.putrequest("POST", path)
     for name, value in {
         "Content-Type": "application/octet-stream",
@@ -122,11 +126,17 @@ class ResourceMonitor:
 
 
 def run(args):
-    if os.getenv("BASKETCUT_V18_ISOLATED") != "YES" or not settings.DEBUG:
-        raise RuntimeError("Isolated disposable V1.8 environment required")
+    global REQUEST_PORT
+    use_nginx = bool(getattr(args, "nginx", False))
+    isolated_flag = ("BASKETCUT_V19_ISOLATED" if use_nginx
+                     else "BASKETCUT_V18_ISOLATED")
+    if os.getenv(isolated_flag) != "YES" or not settings.DEBUG:
+        raise RuntimeError("Isolated disposable GiB environment required")
+    if use_nginx and not shutil.which("nginx"):
+        raise RuntimeError("Actual Nginx binary required for V1.9")
     database = settings.DATABASES["default"]
     if (database["ENGINE"] != "django.db.backends.sqlite3"
-            or "basketcut-v18" not in str(database.get("NAME"))):
+             or ("basketcut-v19" if use_nginx else "basketcut-v18") not in str(database.get("NAME"))):
         raise RuntimeError("Never run multi-GiB test on a production database")
     path = Path(args.video).resolve()
     out = Path(args.out).resolve()
@@ -157,13 +167,57 @@ def run(args):
     cookie = "sessionid=" + session.session_key + "; csrftoken=" + csrf
 
     log = (out / "v18_gunicorn.log").open("w")
+    # Actual Nginx listens on a distinct local TCP port. 8MiB chunks may
+    # pass, but a raw >10MiB single upload request is rejected at the proxy.
+    nginx_proc = None
+    nginx_out = None
+    nginx_root = out / "nginx_runtime"
+    if use_nginx:
+        (nginx_root / "logs").mkdir(parents=True, exist_ok=True)
+        (nginx_root / "body_tmp").mkdir(parents=True, exist_ok=True)
+        config = nginx_root / "nginx.conf"
+        config.write_text(f"""
+worker_processes 1;
+pid {nginx_root}/nginx.pid;
+error_log {nginx_root}/logs/error.log notice;
+events {{ worker_connections 512; }}
+http {{
+  access_log {nginx_root}/logs/access.log;
+  client_body_temp_path {nginx_root}/body_tmp;
+  server {{
+    listen {HOST}:{NGINX_PORT};
+    server_name localhost;
+    client_max_body_size 10m;
+    location / {{
+      proxy_pass http://{HOST}:{PORT};
+      proxy_set_header Host $host;
+      proxy_http_version 1.1;
+      proxy_request_buffering off;
+      proxy_buffering off;
+      proxy_read_timeout 240s;
+      proxy_send_timeout 240s;
+    }}
+  }}
+}}
+""")
+        subprocess.run(["nginx", "-t", "-c", str(config), "-p", str(nginx_root)],
+                       check=True, text=True, capture_output=True, timeout=15)
+        REQUEST_PORT = NGINX_PORT
+    else:
+        REQUEST_PORT = PORT
     proc = subprocess.Popen(
         [sys.executable, "-m", "gunicorn", "basketcut.wsgi:application",
          "--bind", HOST + ":" + str(PORT), "--workers", "2", "--timeout", "240"],
         stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     try:
+        if use_nginx:
+            nginx_out = (out / "v19_nginx.log").open("w")
+            nginx_proc = subprocess.Popen(
+                ["nginx", "-c", str(config), "-p", str(nginx_root),
+                 "-g", "daemon off;"], stdout=nginx_out, stderr=subprocess.STDOUT,
+                start_new_session=True)
         for _ in range(150):
-            if proc.poll() is not None:
+            if proc.poll() is not None or (nginx_proc and nginx_proc.poll() is not None):
                 raise RuntimeError("HTTP Gunicorn worker exited during startup")
             try:
                 code, _ = request("GET", "/health/live", timeout=1)
@@ -262,9 +316,12 @@ def run(args):
         if code != 200 or again.get("game_id") != game.pk:
             raise RuntimeError("Final upload idempotency failed")
         report = {
-            "schema_version": 1, "version": "1.8", "result": "PASS",
+            "schema_version": 1, "version": ("1.9" if use_nginx else "1.8"), "result": "PASS",
             "checked_at_utc": datetime.now(timezone.utc).isoformat(),
             "source": "short_synthetic_playable_mp4_with_sparse_zero_tail",
+            "actual_nginx_reverse_proxy": use_nginx,
+            "nginx_request_buffering": "off" if use_nginx else "not_tested",
+            "reverse_proxy_tls_tested": False,
             "is_real_basketball_full_match": False,
             "actual_total_file_bytes": length,
             "actual_http_confirmed_chunk_bytes": transferred_bytes,
@@ -290,17 +347,38 @@ def run(args):
                 "Memory and disk observations are sampled estimates, not guaranteed peaks",
             ],
         }
-        (out / "v18_gib_http_audit.json").write_text(json.dumps(report, indent=2))
+        if use_nginx:
+            access = (nginx_root / "logs" / "access.log").read_text()
+            # Only actual 200 acknowledgements passing Nginx are counted.
+            count_200 = sum(
+                'POST /games/resumable/' in line and '/chunk/ ' in line and
+                re.search(r'" 200 ', line) is not None
+                for line in access.splitlines())
+            if count_200 < length // CHUNK:
+                raise RuntimeError("Nginx log does not independently show all confirmed chunks")
+            report["nginx_successful_chunk_post_count"] = count_200
+            report["nginx_access_log_cross_checked"] = True
+            report["limits"].append(
+                "This test checks 4GiB through localhost Nginx, not public TLS/CDN")
+        filename = "v19_4gib_nginx_audit.json" if use_nginx else "v18_gib_http_audit.json"
+        (out / filename).write_text(json.dumps(report, indent=2))
         print(json.dumps(report, indent=2))
     finally:
+        if nginx_proc is not None and nginx_proc.poll() is None:
+            os.killpg(nginx_proc.pid, signal.SIGTERM)
+            nginx_proc.wait(timeout=15)
         if proc.poll() is None:
             os.killpg(proc.pid, signal.SIGTERM)
             proc.wait(timeout=15)
+        if nginx_out is not None:
+            nginx_out.close()
         log.close()
+        REQUEST_PORT = PORT
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--video", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--nginx", action="store_true", help="V1.9 real Nginx reverse proxy")
     run(parser.parse_args())
