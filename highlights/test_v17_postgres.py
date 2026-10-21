@@ -10,13 +10,16 @@ from django.db import close_old_connections, connection, connections
 from django.test import Client, TransactionTestCase, override_settings
 from django.urls import reverse
 
-from .models import ResumableUpload, Venue
+from .models import MediaCapacityLock, ResumableUpload, Venue
 
 
 class V17PostgresReservationTests(TransactionTestCase):
     def setUp(self):
         if connection.vendor != "postgresql":
             self.skipTest("Requires actual PostgreSQL row locks")
+        # TransactionTestCase flushes test DB data after each case.
+        # Recreate the migration singleton in isolated tests, not production.
+        MediaCapacityLock.objects.get_or_create(pk=1)
         self.root = tempfile.mkdtemp(prefix="basketcut-v17-pg-")
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         opts = override_settings(

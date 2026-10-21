@@ -23,6 +23,7 @@ class V18CrossTenantPostgresTests(TransactionTestCase):
     def setUp(self):
         if connection.vendor != "postgresql":
             self.skipTest("Requires actual PostgreSQL, not SQLite")
+        MediaCapacityLock.objects.get_or_create(pk=1)
         self.root = tempfile.mkdtemp(prefix="basketcut-v18-pg-")
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         scope = override_settings(
