@@ -1,0 +1,198 @@
+name: BasketCut V1.7 Resumable Upload and Real Disconnect Acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "basketcut/settings.py"
+      - "highlights/models.py"
+      - "highlights/migrations/0013_resumable_upload.py"
+      - "highlights/urls.py"
+      - "highlights/views.py"
+      - "highlights/upload_guard.py"
+      - "highlights/resumable.py"
+      - "highlights/resumable_views.py"
+      - "highlights/test_v17_*.py"
+      - "highlights/management/commands/cleanup_resumable.py"
+      - "scripts/v17_*.py"
+      - "static/upload-progress.js"
+      - "templates/dashboard.html"
+      - ".github/workflows/v17-resumable-acceptance.yml"
+      - "docs/V17_ACCEPTANCE.md"
+  push:
+    branches: [main]
+    paths:
+      - "highlights/resumable.py"
+      - "highlights/resumable_views.py"
+      - "highlights/test_v17_*.py"
+      - ".github/workflows/v17-resumable-acceptance.yml"
+
+jobs:
+  sqlite-and-tcp-reconnect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "v17-temporary-test-not-production"
+      DATABASE_URL: "sqlite:////tmp/basketcut-v17/db.sqlite3"
+      MEDIA_ROOT: "/tmp/basketcut-v17/media"
+      MEDIA_MIN_FREE_BYTES: "0"
+      MAX_UPLOAD_BYTES: "50331648"
+      OWNER_MAX_RAW_BYTES: "100663296"
+      BASKETCUT_V17_ISOLATED: "YES"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install FFmpeg and CPU runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Apply migration; check schema; test resume and prior quota regressions
+        run: |
+          mkdir -p /tmp/basketcut-v17/media /tmp/basketcut-v17/out
+          python manage.py makemigrations --check --dry-run
+          python manage.py migrate --noinput
+          python manage.py test highlights.test_v17_resumable highlights.test_v12_operational --verbosity 2
+          node --check static/upload-progress.js
+      - name: Make genuine decodable synthetic video plus clearly declared padding
+        run: |
+          ffmpeg -nostdin -hide_banner -loglevel error -y \
+            -f lavfi -i "testsrc2=s=960x540:r=30" -t 30 \
+            -c:v libx264 -preset veryfast -crf 17 -pix_fmt yuv420p -movflags +faststart \
+            /tmp/basketcut-v17/fixture.mp4
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("/tmp/basketcut-v17/fixture.mp4")
+          assert 0 < p.stat().st_size < 14*1024**2
+          with p.open("ab") as f:
+              f.truncate(14*1024**2)
+          assert p.stat().st_size == 14*1024**2
+          PY
+      - name: Real Gunicorn HTTP abort mid-chunk and finish after reconnect
+        run: |
+          python scripts/v17_http_resume_probe.py \
+            --video /tmp/basketcut-v17/fixture.mp4 \
+            --out /tmp/basketcut-v17/out
+      - name: Fail closed if reconnect audit missing or untrue
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("/tmp/basketcut-v17/out/v17_http_resume_report.json")
+          r=json.loads(p.read_text())
+          assert r["result"]=="PASS"
+          assert r["real_connection_aborted_mid_chunk"]
+          assert r["original_and_stored_sha256_match"]
+          assert r["resumed_and_finished_offset"]==14*1024**2
+          assert r["finalize_idempotent"]
+          assert not r["actual_2_to_4_gib_tested"]
+          PY
+      - name: Keep measured JSON and limited error logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v17-real-http-resume-audit
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            /tmp/basketcut-v17/out/v17_http_resume_report.json
+            /tmp/basketcut-v17/out/v17_gunicorn.log
+
+  postgresql-reservation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: basketcut
+          POSTGRES_USER: v17
+          POSTGRES_PASSWORD: ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U v17 -d basketcut"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "v17-postgres-ci-only"
+      DATABASE_URL: "postgres://v17:ci_only@127.0.0.1:5432/basketcut"
+      MEDIA_MIN_FREE_BYTES: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Python runtime
+        run: python -m pip install -r requirements.txt
+      - name: Real PostgreSQL concurrent start-reservations
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/basketcut-v17
+          python manage.py test highlights.test_v17_postgres --verbosity 2 \
+            2>&1 | tee /tmp/basketcut-v17/postgres_reservations.log
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("/tmp/basketcut-v17/postgres_reservations.log").read_text()
+          assert "Ran 1 test" in s
+          assert "\nOK\n" in s
+          assert "skipped=" not in s
+          Path("/tmp/basketcut-v17/pg_pass.json").write_text(
+            '{"schema_version":1,"result":"PASS","postgresql":true,"independent_accounts":true}')
+          PY
+      - name: Persist PostgreSQL lock report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v17-postgresql-reservation-audit
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            /tmp/basketcut-v17/postgres_reservations.log
+            /tmp/basketcut-v17/pg_pass.json
+
+  changed-only-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Produce V1.7 changed-and-new-files ZIP
+        run: |
+          mkdir -p /tmp/basketcut-v17/patch
+          for file in \
+            basketcut/settings.py \
+            highlights/models.py \
+            highlights/urls.py \
+            highlights/views.py \
+            highlights/upload_guard.py \
+            static/upload-progress.js \
+            templates/dashboard.html \
+            highlights/resumable.py \
+            highlights/resumable_views.py \
+            highlights/migrations/0013_resumable_upload.py \
+            highlights/test_v17_resumable.py \
+            highlights/test_v17_postgres.py \
+            highlights/management/commands/cleanup_resumable.py \
+            scripts/v17_http_resume_probe.py \
+            .github/workflows/v17-resumable-acceptance.yml \
+            docs/V17_ACCEPTANCE.md; do
+            mkdir -p "/tmp/basketcut-v17/patch/$(dirname "$file")"
+            cp "$file" "/tmp/basketcut-v17/patch/$file"
+          done
+          printf '%s\n' \
+            '# BasketCut V1.7 incremental source patch' \
+            'Base: V1.6 main. Extract at project root preserving paths.' \
+            'Modified original files: settings, models, urls, views, upload_guard, JS, dashboard.' \
+            'Other files added. Run migrations and both CI jobs.' \
+            'This release does not claim 2-4GiB or real-game accuracy acceptance.' \
+            > /tmp/basketcut-v17/patch/INSTALL_V17.md
+          (cd /tmp/basketcut-v17/patch && zip -qr ../BasketCut_V1_7_PATCH.zip .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v17-changed-only-source-patch
+          retention-days: 7
+          path: /tmp/basketcut-v17/BasketCut_V1_7_PATCH.zip
