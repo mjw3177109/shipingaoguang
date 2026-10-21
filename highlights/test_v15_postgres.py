@@ -12,7 +12,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import close_old_connections, connection
+from django.db import close_old_connections, connection, connections
 from django.test import TransactionTestCase, override_settings
 from django.urls import reverse
 
@@ -43,7 +43,9 @@ class V15ConcurrencyTests(TransactionTestCase):
             try:
                 return fn(barrier)
             finally:
-                close_old_connections()
+                # Django's test DB must not retain per-thread PG connections.
+                # close_old_connections() alone keeps reusable CONN_MAX_AGE sockets open.
+                connections.close_all()
         with ThreadPoolExecutor(max_workers=len(callables)) as pool:
             futures = [pool.submit(task, fn) for fn in callables]
             return [f.result(timeout=50) for f in futures]
