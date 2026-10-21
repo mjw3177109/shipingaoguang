@@ -147,6 +147,10 @@ class Command(BaseCommand):
                 if game.analysis_engine == "cpu":
                     result = scan_cpu_video(
                         game.video.path, hoops=game.hoops, heartbeat=heartbeat)
+                    # V1.4: never promote a truncated long scan to READY.
+                    # Otherwise the UI silently hides all candidates near game end.
+                    if result.get("analysis", {}).get("incomplete_scan", False):
+                        raise ValueError("CPU 录像扫描不完整，末段未解码，不能标记完成；请检查源视频。")
                     heartbeat(force=True)
                     with transaction.atomic():
                         locked = Game.objects.select_for_update().get(pk=game.pk)

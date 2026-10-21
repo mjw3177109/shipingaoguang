@@ -95,7 +95,12 @@ def scan_cpu_video(path, *, hoops=None, sample_seconds=.35, max_frames=10000, he
         if not all(math.isfinite(v) for v in (fps, frames)) or fps <= 0 or frames < 1:
             raise ValueError("Unusable video FPS/frame-count")
         duration = frames / fps
-        scheduled = min(int(math.ceil(duration / sample_seconds)), max_frames)
+        # V1.4: cover the WHOLE recording rather than silently stopping after
+        # max_frames * sample_seconds (58m20s with the legacy defaults).
+        # The explicit frame budget is retained: long recordings sacrifice
+        # temporal resolution, not coverage. This can miss brief events.
+        effective_sample_seconds = max(sample_seconds, duration / max_frames)
+        scheduled = min(int(math.ceil(duration / effective_sample_seconds)), max_frames)
         observations = []
         decoded = 0
         last_time = 0
@@ -103,7 +108,7 @@ def scan_cpu_video(path, *, hoops=None, sample_seconds=.35, max_frames=10000, he
         for i in range(scheduled):
             if heartbeat:
                 heartbeat()
-            t = i * sample_seconds
+            t = i * effective_sample_seconds
             video.set(cv2.CAP_PROP_POS_MSEC, 1000*t)
             ok, frame = video.read()
             if not ok:
@@ -123,7 +128,7 @@ def scan_cpu_video(path, *, hoops=None, sample_seconds=.35, max_frames=10000, he
             prev_points = current
         if decoded == 0:
             raise ValueError("Video has no decodable frames")
-        analyzed_until = min(duration, last_time + sample_seconds)
+        analyzed_until = min(duration, last_time + effective_sample_seconds)
         incomplete = analyzed_until < duration - .05
         if checked:
             clips = propose_shots(observations, checked, duration, min_hits=2)
@@ -137,7 +142,10 @@ def scan_cpu_video(path, *, hoops=None, sample_seconds=.35, max_frames=10000, he
             "analysis": {
                 "kind": "cpu_color_shape_motion_heuristic",
                 "model": "opencv_hsv_contour_cpu_no_weights",
-                "device": "cpu", "sample_interval_seconds": sample_seconds,
+                "device": "cpu", "sample_interval_seconds": round(effective_sample_seconds, 6),
+                "requested_sample_interval_seconds": sample_seconds,
+                "adaptive_sampling": effective_sample_seconds > sample_seconds + 1e-9,
+                "coverage_ratio": round(analyzed_until / duration, 6),
                 "frames_processed": decoded, "observations": len(observations),
                 "hoop_roi_provided": bool(checked),
                 "incomplete_scan": incomplete,
