@@ -1,0 +1,164 @@
+name: BasketCut V1.5 HTTP, PostgreSQL Concurrency and Real Worker Crash
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "basketcut/settings.py"
+      - "highlights/upload_guard.py"
+      - "highlights/test_v15_postgres.py"
+      - "scripts/v15_*.py"
+      - ".github/workflows/v15-production-reliability.yml"
+      - "docs/V15_PRODUCTION_RELIABILITY.md"
+  push:
+    branches: [main]
+    paths:
+      - "basketcut/settings.py"
+      - "highlights/upload_guard.py"
+      - "highlights/test_v15_postgres.py"
+      - "scripts/v15_*.py"
+      - ".github/workflows/v15-production-reliability.yml"
+
+jobs:
+  postgres-concurrency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: basketcut
+          POSTGRES_USER: v15
+          POSTGRES_PASSWORD: v15_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U v15 -d basketcut"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "v15-ci-not-for-production"
+      DATABASE_URL: "postgres://v15:v15_ci_only@127.0.0.1:5432/basketcut"
+      MEDIA_MIN_FREE_BYTES: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Django, FFmpeg and CPU dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Concurrent HTTP-shaped requests against REAL PostgreSQL row locks
+        run: |
+          mkdir -p /tmp/basketcut-v15
+          set -o pipefail
+          python manage.py test highlights.test_v15_postgres --verbosity 2 \
+            2>&1 | tee /tmp/basketcut-v15/postgres_test.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          log=Path("/tmp/basketcut-v15/postgres_test.log").read_text()
+          assert "Ran 4 tests" in log and "\nOK\n" in log, "PostgreSQL concurrency test suite incomplete"
+          Path("/tmp/basketcut-v15/v15_postgres_report.json").write_text(
+              json.dumps({"schema_version":1,"test":"real_postgresql_16_concurrent_owner_quota_and_export_limit",
+                          "results":"PASS","tests_run":4,
+                          "note":"Separate Django database connections; does not represent public multi-host load."},
+                         indent=2))
+          PY
+      - name: Upload PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v15-postgresql-locking-audit
+          retention-days: 7
+          path: |
+            /tmp/basketcut-v15/v15_postgres_report.json
+            /tmp/basketcut-v15/postgres_test.log
+          if-no-files-found: warn
+
+  http-and-crash:
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    env:
+      DEBUG: "1"
+      SECRET_KEY: "v15-temporary-ci-db"
+      DATABASE_URL: "sqlite:////tmp/basketcut-v15/db.sqlite3"
+      MEDIA_ROOT: "/tmp/basketcut-v15/media"
+      MEDIA_MIN_FREE_BYTES: "0"
+      MAX_UPLOAD_BYTES: "67108864"
+      OWNER_MAX_RAW_BYTES: "134217728"
+      BASKETCUT_V15_ISOLATED: "YES"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install FFmpeg and Django
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python -m pip install -r requirements.txt -r requirements-cpu.txt
+      - name: Initialize isolated SQLite and synthetic video fixture
+        run: |
+          mkdir -p /tmp/basketcut-v15/media /tmp/basketcut-v15/out
+          python manage.py migrate --noinput
+          ffmpeg -nostdin -hide_banner -loglevel error -y \
+            -f lavfi -i "testsrc2=s=960x540:r=30" -t 30 \
+            -c:v libx264 -preset veryfast -crf 16 -pix_fmt yuv420p \
+            /tmp/basketcut-v15/input.mp4
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("/tmp/basketcut-v15/input.mp4")
+          assert 5*1024*1024 < p.stat().st_size < 60*1024*1024, p.stat().st_size
+          PY
+      - name: Stream actual multipart bytes through Gunicorn and test 413 guard
+        run: |
+          python scripts/v15_http_probe.py \
+            --video /tmp/basketcut-v15/input.mp4 --out /tmp/basketcut-v15/out
+      - name: SIGKILL live FFmpeg Worker, recover lease and render valid MP4
+        run: |
+          python scripts/v15_kill_probe.py \
+            --video /tmp/basketcut-v15/input.mp4 --out /tmp/basketcut-v15/out
+      - name: Validate real measurements and hard-fail if missing
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("/tmp/basketcut-v15/out")
+          http=json.loads((p/"v15_http_report.json").read_text())
+          kill=json.loads((p/"v15_sigkill_report.json").read_text())
+          assert http["result"] == kill["result"] == "PASS"
+          assert http["actual_file_sha256_verified"]
+          assert http["file_bytes_sent_in_256kib_chunks"] > 5*1024*1024
+          assert http["http_response_status"] == 302
+          assert http["oversize_content_length_rejected_without_body"]
+          assert kill["real_os_sigkill_of_worker_process_group"]
+          assert kill["ffmpeg_child_observed_before_kill"]
+          assert kill["replacement_worker_real_ffmpeg_finished"]
+          assert kill["old_worker_token_fenced"]
+          assert kill["lease_recovery_count"] == 1
+          assert (p/"v15_recovered_highlight.mp4").stat().st_size > 10000
+          (p/"v15_acceptance.json").write_text(json.dumps({
+              "schema_version":1,"result":"PASS",
+              "real_http_upload":"PASS",
+              "http_oversize_request":"PASS",
+              "real_sigkill_and_rerender":"PASS",
+              "limitations":["No real full-match input","Localhost Gunicorn without Nginx",
+                  "No large concurrent public uploads or 4 GiB acceptance",
+                  "PostgreSQL concurrency separately tested in a different job"]},
+              indent=2))
+          PY
+      - name: Upload exact proof from ephemeral runner
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v15-real-http-sigkill-audit
+          retention-days: 7
+          path: |
+            /tmp/basketcut-v15/out/v15_http_report.json
+            /tmp/basketcut-v15/out/v15_sigkill_report.json
+            /tmp/basketcut-v15/out/v15_acceptance.json
+            /tmp/basketcut-v15/out/v15_recovered_highlight.mp4
+          if-no-files-found: warn
