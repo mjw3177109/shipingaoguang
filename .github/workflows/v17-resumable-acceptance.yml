@@ -36,7 +36,7 @@ jobs:
       SECRET_KEY: "v17-temporary-test-not-production"
       DATABASE_URL: "sqlite:////tmp/basketcut-v17/db.sqlite3"
       MEDIA_ROOT: "/tmp/basketcut-v17/media"
-      MEDIA_MIN_FREE_BYTES: "0"
+      MEDIA_MIN_FREE_BYTES: "1048576"
       MAX_UPLOAD_BYTES: "50331648"
       OWNER_MAX_RAW_BYTES: "100663296"
       BASKETCUT_V17_ISOLATED: "YES"
