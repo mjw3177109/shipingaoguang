@@ -128,7 +128,7 @@ def audit(manifest, base_dir, *, media_probe=media_details):
             record(key, True, "Video, rights attestations, full labels and scan pass software gates")
         except (KeyError, OSError, ValueError, TypeError, subprocess.SubprocessError) as exc:
             # Fail closed; do not print private paths or raw video labels.
-            record(key, False, f"Evidence rejected: {type(exc).__name__}: {str(exc)[:170]}")
+            record(key, False, f"Evidence rejected: {type(exc).__name__}. Inspect private input locally.")
     eligible = len(entries) >= 3 and all(v["status"] == "PASS" for v in checks.values())
     tp = sum(m["true_matches"] for m in metrics)
     preds = sum(m["candidate_clips"] for m in metrics)
