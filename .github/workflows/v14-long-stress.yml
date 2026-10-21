@@ -74,6 +74,41 @@ jobs:
           python scripts/v14_acceptance.py \
             --out /tmp/basketcut-v14/out \
             --max-elapsed-seconds 1800 --max-rss-mib 2048
+      - name: Package changed-only V1.4 source patch
+        if: always()
+        run: |
+          mkdir -p /tmp/basketcut-v14/source_patch
+          for file in \
+            highlights/vision/cpu.py \
+            highlights/management/commands/runworker.py \
+            highlights/test_v14_long.py \
+            scripts/v14_make_long_fixture.py \
+            scripts/v14_long_stress.py \
+            scripts/v14_acceptance.py \
+            .github/workflows/v14-long-stress.yml \
+            docs/V14_LONG_RECORDING_ACCEPTANCE.md; do
+            mkdir -p "/tmp/basketcut-v14/source_patch/$(dirname "$file")"
+            cp "$file" "/tmp/basketcut-v14/source_patch/$file"
+          done
+          printf '%s\n' \
+            '# BasketCut V1.4 增量补丁' \
+            '' \
+            '基础版本：V1.3 main；文件均按仓库根目录的相对路径放置。' \
+            '修改：highlights/vision/cpu.py、highlights/management/commands/runworker.py。' \
+            '其余 6 个为新增文件；不包括用户数据、录像或已有其他版本代码。' \
+            '安装后参考 docs/V14_LONG_RECORDING_ACCEPTANCE.md，并执行 python manage.py test highlights.test_v14_long。' \
+            '注意：CI 仅验证循环 60 分钟工程视频，不宣称真实完整比赛准确率。' \
+            > /tmp/basketcut-v14/source_patch/INSTALL_V14.md
+          cd /tmp/basketcut-v14/source_patch
+          zip -q -r /tmp/basketcut-v14/BasketCut_V1_4_PATCH.zip .
+      - name: Upload changed-only source patch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: basketcut-v14-patch-only
+          retention-days: 7
+          path: /tmp/basketcut-v14/BasketCut_V1_4_PATCH.zip
+          if-no-files-found: warn
       - name: Retain honest JSON and render evidence, not entire footage
         if: always()
         uses: actions/upload-artifact@v4
