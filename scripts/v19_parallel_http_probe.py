@@ -39,6 +39,8 @@ CHUNK_SIZE = 8 * 1024**2
 def send(method, path, *, body=None, cookie="", headers=None):
     conn = http.client.HTTPConnection("127.0.0.1", NGINX_PORT, timeout=120)
     h = {"Cookie": cookie, **(headers or {})}
+    if "csrftoken=" in cookie:
+        h["X-CSRFToken"] = cookie.split("csrftoken=", 1)[1].split(";", 1)[0]
     if body is not None:
         h["Content-Length"] = str(len(body))
     conn.request(method, path, body=body, headers=h)
@@ -81,7 +83,7 @@ def main(args):
         session.save()
         users.append({
             "username": user.username, "venue_id": venue.pk, "user_id": user.pk,
-            "cookie": "sessionid=" + session.session_key,
+            "cookie": "sessionid=" + session.session_key + "; csrftoken=" + secrets.token_hex(16),
         })
 
     root = output / "nginx"
